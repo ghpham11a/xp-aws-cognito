@@ -210,6 +210,77 @@ body {
   line-height: 1.75;
 }
 
+/* Feed Section */
+.feed-section {
+  background: var(--card-bg);
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.feed-section h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.feed-loading,
+.feed-empty {
+  color: #6b7280;
+}
+
+.feed-error {
+  color: #ef4444;
+}
+
+.feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.feed-item {
+  background: var(--background);
+  border: 1px solid var(--border);
+  padding: 1rem;
+  border-radius: 0.5rem;
+}
+
+.feed-item h4 {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.feed-item p {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.feed-item-type {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  margin-bottom: 0.5rem;
+}
+
+.feed-item-announcement .feed-item-type {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.feed-item-update .feed-item-type {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.feed-item-report .feed-item-type {
+  background: #fef3c7;
+  color: #b45309;
+}
+
 /* User Management */
 .user-management h1 {
   font-size: 2rem;
