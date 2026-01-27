@@ -4,21 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AWS Cognito authentication demo with a Next.js frontend and FastAPI backend. Demonstrates user authentication, JWT validation, and protected API endpoints.
+AWS Cognito authentication demo with Next.js web frontend, Android native app, and FastAPI backend. Demonstrates user authentication, JWT validation, and protected API endpoints.
 
 ## Commands
 
-**Frontend (nextjs-client/):**
+**Next.js Frontend (nextjs-client/):**
 ```bash
 npm run dev      # Start dev server at localhost:3000
 npm run build    # Build for production
 npm run lint     # Run ESLint
 ```
 
+**Android App (android-client/):**
+```bash
+./gradlew assembleDebug    # Build debug APK
+./gradlew assembleRelease  # Build release APK
+```
+
 **Backend (server/app/):**
 ```bash
 uvicorn main:app --port 6969 --reload   # Start dev server
 pip install -r requirements.txt          # Install dependencies (from server/)
+```
+
+### Tunneling for mobile testing
+
+```bash
+ngrok http --hostname=feedback-test.ngrok.io 6969
 ```
 
 ## Architecture
@@ -33,6 +45,19 @@ nextjs-client/                    # Next.js 16 frontend
 │   ├── DashboardContent.tsx      # Fetches /users/me and /feed from backend
 │   └── UserManagement.tsx        # Password change, sign out
 └── lib/amplify-config.ts         # Cognito configuration
+
+android-client/                   # Android Jetpack Compose app
+├── app/src/main/
+│   ├── res/raw/amplifyconfiguration.json  # Cognito config
+│   └── java/com/example/awscognito/
+│       ├── CognitoApp.kt         # Application class, Amplify init
+│       ├── MainActivity.kt       # Main activity with Compose
+│       ├── data/
+│       │   ├── api/              # Retrofit client for backend
+│       │   └── model/            # User, FeedItem data classes
+│       └── ui/
+│           ├── screens/          # Home, Dashboard, Account, Login screens
+│           └── viewmodel/        # AuthViewModel (auth state + API calls)
 
 server/app/                       # FastAPI backend
 ├── main.py                       # App setup, CORS, routers
@@ -71,7 +96,15 @@ COGNITO_CLIENT_ID=<client-id>
 
 ## Key Patterns
 
-- Frontend uses `fetchAuthSession()` from `aws-amplify/auth` to get JWT tokens
-- Backend uses `python-jose` to validate JWTs against Cognito JWKS
+- **Next.js**: Uses `fetchAuthSession()` from `aws-amplify/auth` to get JWT tokens
+- **Android**: Uses `Amplify.Auth.fetchAuthSession()` to get tokens, Retrofit for API calls
+- **Backend**: Uses `python-jose` to validate JWTs against Cognito JWKS
 - All protected endpoints use `Depends(verify_token)` for auth
 - Feed endpoint prepared for role-based filtering via `claims.get("cognito:groups")`
+
+## Android-Specific Notes
+
+- API base URL in `ApiClient.kt` - uses ngrok URL for physical device, `10.0.2.2` for emulator
+- Cognito config in `res/raw/amplifyconfiguration.json` (not environment variables)
+- Uses Jetpack Compose with Material 3, single-activity architecture
+- `AuthViewModel` manages both auth state and dashboard data loading
