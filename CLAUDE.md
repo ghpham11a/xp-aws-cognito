@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AWS Cognito authentication demo with Next.js web frontend, Android native app, and FastAPI backend. Demonstrates user authentication, JWT validation, and protected API endpoints.
+AWS Cognito authentication demo with Next.js web frontend, Android native app, iOS native app, and FastAPI backend. Demonstrates user authentication, JWT validation, and protected API endpoints.
 
 ## Commands
 
@@ -19,6 +19,13 @@ npm run lint     # Run ESLint
 ```bash
 ./gradlew assembleDebug    # Build debug APK
 ./gradlew assembleRelease  # Build release APK
+```
+
+**iOS App (ios-client/AWSCognito/):**
+```bash
+# Open in Xcode - SPM dependencies resolve automatically
+open AWSCognito.xcodeproj
+xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 15' build
 ```
 
 **Backend (server/app/):**
@@ -59,6 +66,15 @@ android-client/                   # Android Jetpack Compose app
 │           ├── screens/          # Home, Dashboard, Account, Login screens
 │           └── viewmodel/        # AuthViewModel (auth state + API calls)
 
+ios-client/AWSCognito/            # iOS SwiftUI app
+├── AWSCognito/
+│   ├── AWSCognitoApp.swift       # App entry, Amplify initialization
+│   ├── amplifyconfiguration.json # Cognito config
+│   ├── Models/                   # User, FeedItem structs
+│   ├── Services/APIService.swift # URLSession-based API client
+│   ├── ViewModels/AuthViewModel.swift  # ObservableObject for auth state
+│   └── Views/                    # MainView, LoginView, Home, Dashboard, Account
+
 server/app/                       # FastAPI backend
 ├── main.py                       # App setup, CORS, routers
 ├── data/users.json               # Local user storage (created at runtime)
@@ -98,6 +114,7 @@ COGNITO_CLIENT_ID=<client-id>
 
 - **Next.js**: Uses `fetchAuthSession()` from `aws-amplify/auth` to get JWT tokens
 - **Android**: Uses `Amplify.Auth.fetchAuthSession()` to get tokens, Retrofit for API calls
+- **iOS**: Uses `Amplify.Auth.fetchAuthSession()` with `AuthCognitoTokensProvider` to get tokens, URLSession for API calls
 - **Backend**: Uses `python-jose` to validate JWTs against Cognito JWKS
 - All protected endpoints use `Depends(verify_token)` for auth
 - Feed endpoint prepared for role-based filtering via `claims.get("cognito:groups")`
@@ -108,3 +125,11 @@ COGNITO_CLIENT_ID=<client-id>
 - Cognito config in `res/raw/amplifyconfiguration.json` (not environment variables)
 - Uses Jetpack Compose with Material 3, single-activity architecture
 - `AuthViewModel` manages both auth state and dashboard data loading
+
+## iOS-Specific Notes
+
+- API base URL in `APIService.swift` - uses ngrok URL for device testing
+- Cognito config in `amplifyconfiguration.json` (same format as Android)
+- Uses SwiftUI with tab-based navigation, `@StateObject` for view model
+- `AuthViewModel` is an `ObservableObject` with `@Published` properties for reactive UI
+- Amplify Swift added via Swift Package Manager (amplify-swift v2.x)

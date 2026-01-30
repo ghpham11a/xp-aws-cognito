@@ -1,0 +1,31 @@
+//
+//  AWSCognitoApp.swift
+//  AWSCognito
+//
+
+import SwiftUI
+import Amplify
+import AWSCognitoAuthPlugin
+
+@main
+struct AWSCognitoApp: App {
+    init() {
+        configureAmplify()
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            MainView()
+        }
+    }
+
+    private func configureAmplify() {
+        do {
+            try Amplify.add(plugin: AWSCognitoAuthPlugin())
+            try Amplify.configure()
+            print("Amplify configured successfully")
+        } catch {
+            print("Failed to configure Amplify: \(error)")
+        }
+    }
+}
