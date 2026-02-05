@@ -9,13 +9,19 @@ import AWSCognitoAuthPlugin
 
 @main
 struct AWSCognitoApp: App {
+    
+    @State private var routeManager = RouteManager()
+    @State private var authManager = AuthManager()
+    
     init() {
         configureAmplify()
     }
 
     var body: some Scene {
         WindowGroup {
-            MainView()
+            ContentView()
+                .environment(routeManager)
+                .environment(authManager)
         }
     }
 

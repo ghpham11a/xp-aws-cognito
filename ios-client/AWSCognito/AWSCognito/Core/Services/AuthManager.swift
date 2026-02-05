@@ -1,23 +1,26 @@
 //
-//  AuthViewModel.swift
+//  AuthManager.swift
 //  AWSCognito
 //
+//  Created by Anthony Pham on 2/4/26.
+//
 
-import Foundation
+import SwiftUI
 import Amplify
-import AWSCognitoAuthPlugin
 import AWSPluginsCore
-import Observation
+import AWSCognitoAuthPlugin
+import AuthenticationServices
 
 @Observable
 @MainActor
-final class AuthViewModel {
-    // Auth state
+final class AuthManager {
+    
     var isAuthenticated = false
     var isLoading = false
     var userId: String?
     var email: String?
     var authError: String?
+    var showLoginView = false
 
     // Signup confirmation state
     var needsConfirmation = false
@@ -32,27 +35,25 @@ final class AuthViewModel {
     // Password change state
     var passwordChangeSuccess = false
     var passwordChangeError: String?
-
+    
     init() {
         Task {
             await checkAuthStatus()
         }
     }
-
+    
     func checkAuthStatus() async {
         do {
             let session = try await Amplify.Auth.fetchAuthSession()
             isAuthenticated = session.isSignedIn
-
             if session.isSignedIn {
-                await fetchUserAttributes()
+                
             }
         } catch {
-            print("Error checking auth status: \(error)")
-            isAuthenticated = false
+            print("err: \(error)")
         }
     }
-
+    
     private func fetchUserAttributes() async {
         do {
             let attributes = try await Amplify.Auth.fetchUserAttributes()
@@ -67,10 +68,28 @@ final class AuthViewModel {
                 }
             }
         } catch {
-            print("Error fetching user attributes: \(error)")
+            print("err: \(error)")
         }
     }
-
+    
+    private func provisionUser() async {
+        guard let token = try? await getIdToken() else { return }
+        do {
+            // let currentUser = try await NetworkService.shared.request(url: "", authToken: token)
+        } catch {
+            print("err: \(error)")
+        }
+    }
+    
+    private func getIdToken() async throws -> String? {
+        let session = try await Amplify.Auth.fetchAuthSession()
+        if let cognitoTokenProvider = session as? AuthCognitoTokensProvider {
+            let tokens = try cognitoTokenProvider.getCognitoTokens().get()
+            return tokens.idToken
+        }
+        return nil
+    }
+    
     func signUp(email: String, password: String) async {
         isLoading = true
         authError = nil
@@ -146,11 +165,19 @@ final class AuthViewModel {
                 isAuthenticated = true
                 await fetchUserAttributes()
             }
+            
+            if case .confirmSignUp(_) = result.nextStep {
+                needsConfirmation = true
+                confirmationEmail = email
+            }
+    
         } catch let error as AuthError {
             authError = error.errorDescription
         } catch {
             authError = error.localizedDescription
         }
+        
+        print("authError \(authError ?? "")")
 
         isLoading = false
     }
@@ -186,38 +213,47 @@ final class AuthViewModel {
 
         isLoading = false
     }
-
-    func loadDashboardData() async {
-        dashboardLoading = true
-        dashboardError = nil
-
-        do {
-            guard let token = try await getIdToken() else {
-                dashboardError = "Failed to get authentication token"
-                dashboardLoading = false
-                return
-            }
-
-            // Fetch user and feed in parallel
-            async let userResult = APIService.shared.fetchCurrentUser(token: token)
-            async let feedResult = APIService.shared.fetchFeed(token: token)
-
-            user = try await userResult
-            feedItems = try await feedResult
-        } catch {
-            dashboardError = error.localizedDescription
-        }
-
-        dashboardLoading = false
+    
+    func presentLoginView() {
+        showLoginView = true
     }
 
-    private func getIdToken() async throws -> String? {
-        let session = try await Amplify.Auth.fetchAuthSession()
+    // MARK: - Social Sign In
 
-        if let cognitoTokenProvider = session as? AuthCognitoTokensProvider {
-            let tokens = try cognitoTokenProvider.getCognitoTokens().get()
-            return tokens.idToken
+    func handleAppleSignIn(result: Result<ASAuthorization, Error>) async {
+        isLoading = true
+        authError = nil
+
+        switch result {
+        case .success(let authorization):
+            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+                let userId = appleIDCredential.user
+                let email = appleIDCredential.email
+                let fullName = appleIDCredential.fullName
+
+                print("Apple Sign In - User ID: \(userId)")
+                print("Apple Sign In - Email: \(email ?? "not provided")")
+                print("Apple Sign In - Name: \(fullName?.givenName ?? "") \(fullName?.familyName ?? "")")
+
+                // TODO: Implement Cognito social sign-in with Apple
+                // Use Amplify.Auth.signInWithWebUI(for: .apple, ...)
+                authError = "Apple Sign In not yet configured with Cognito"
+            }
+        case .failure(let error):
+            authError = error.localizedDescription
         }
-        return nil
+
+        isLoading = false
+    }
+
+    func signInWithGoogle() async {
+        isLoading = true
+        authError = nil
+
+        // TODO: Implement Cognito social sign-in with Google
+        // Use Amplify.Auth.signInWithWebUI(for: .google, ...)
+        authError = "Google Sign In not yet configured with Cognito"
+
+        isLoading = false
     }
 }

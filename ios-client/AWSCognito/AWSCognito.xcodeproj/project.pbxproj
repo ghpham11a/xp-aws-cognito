@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CE17FF4F2F342290002C455D /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0B2F2C100000D29722 /* Amplify */; };
+		CE17FF502F342290002C455D /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0C2F2C100000D29722 /* AWSCognitoAuthPlugin */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		CECD9FED2F2C0DFD00D29722 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +57,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CE17FF502F342290002C455D /* AWSCognitoAuthPlugin in Frameworks */,
+				CE17FF4F2F342290002C455D /* Amplify in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -197,10 +204,10 @@
 			);
 			mainGroup = CECD9FD62F2C0DFC00D29722;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			packageReferences = (
 				CECD9F0A2F2C100000D29722 /* XCRemoteSwiftPackageReference "amplify-swift" */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = CECD9FE02F2C0DFC00D29722 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
