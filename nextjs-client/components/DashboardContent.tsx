@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuthenticator } from "@aws-amplify/ui-react";
+import { useAuth } from "@/lib/auth-context";
 import { fetchAuthSession } from "aws-amplify/auth";
+import LoadingSpinner from "./LoadingSpinner";
 
 interface FeedItem {
   id: string;
@@ -14,7 +15,7 @@ interface FeedItem {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:6969";
 
 export default function DashboardContent() {
-  const { user } = useAuthenticator((context) => [context.user]);
+  const { user } = useAuth();
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export default function DashboardContent() {
         const token = session.tokens?.idToken?.toString();
 
         if (!token) {
-          setError("No auth token available");
+          setError("No auth token available. Please sign in again.");
           setLoading(false);
           return;
         }
@@ -34,13 +35,21 @@ export default function DashboardContent() {
         const headers = { Authorization: `Bearer ${token}` };
 
         // Sync user to backend (creates user record if doesn't exist)
-        await fetch(`${API_URL}/users/me`, { headers });
+        const userResponse = await fetch(`${API_URL}/users/me`, { headers });
+        if (!userResponse.ok && userResponse.status !== 404) {
+          console.warn("Failed to sync user:", userResponse.status);
+        }
 
         // Fetch feed items
         const response = await fetch(`${API_URL}/feed`, { headers });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch feed: ${response.status}`);
+          if (response.status === 401) {
+            setError("Your session has expired. Please sign in again.");
+          } else {
+            setError(`Failed to fetch feed: ${response.status}`);
+          }
+          return;
         }
 
         const data = await response.json();
@@ -55,6 +64,10 @@ export default function DashboardContent() {
     initDashboard();
   }, []);
 
+  if (loading) {
+    return <LoadingSpinner message="Loading dashboard..." />;
+  }
+
   return (
     <div className="dashboard-content">
       <h1>Dashboard</h1>
@@ -65,9 +78,8 @@ export default function DashboardContent() {
 
       <div className="feed-section">
         <h3>Your Feed</h3>
-        {loading && <p className="feed-loading">Loading feed...</p>}
         {error && <p className="feed-error">{error}</p>}
-        {!loading && !error && feedItems.length === 0 && (
+        {!error && feedItems.length === 0 && (
           <p className="feed-empty">No items in your feed.</p>
         )}
         <div className="feed-list">

@@ -1,12 +1,10 @@
 "use client";
 
-import { useAuthenticator, AccountSettings } from "@aws-amplify/ui-react";
+import { useAuth } from "@/lib/auth-context";
+import ChangePassword from "@/components/ChangePassword";
 
 export default function UserManagement() {
-  const { user, signOut } = useAuthenticator((context) => [
-    context.user,
-    context.signOut,
-  ]);
+  const { user, signOut } = useAuth();
 
   return (
     <div className="user-management">
@@ -30,7 +28,7 @@ export default function UserManagement() {
 
       <div className="password-section">
         <h2>Change Password</h2>
-        <AccountSettings.ChangePassword onSuccess={() => alert("Password changed successfully!")} />
+        <ChangePassword onSuccess={() => alert("Password changed successfully!")} />
       </div>
 
       <div className="signout-section">

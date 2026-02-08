@@ -1,7 +1,7 @@
 "use client";
 
 import { configureAmplify } from "@/lib/amplify-config";
-import { Authenticator } from "@aws-amplify/ui-react";
+import { AuthProvider } from "@/lib/auth-context";
 
 configureAmplify();
 
@@ -10,5 +10,5 @@ interface AmplifyProviderProps {
 }
 
 export default function AmplifyProvider({ children }: AmplifyProviderProps) {
-  return <Authenticator.Provider>{children}</Authenticator.Provider>;
+  return <AuthProvider>{children}</AuthProvider>;
 }
