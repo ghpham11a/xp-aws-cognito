@@ -117,6 +117,12 @@ def verify_token(
             algorithms=["RS256"],
             audience=settings.cognito_client_id,
             issuer=issuer,
+            options={
+                # Disable at_hash verification - this claim binds ID tokens to access tokens
+                # but we only validate the ID token. Federated providers (Google/Apple) include
+                # this claim, and without passing the access_token, jose logs a warning.
+                "verify_at_hash": False,
+            },
         )
 
         return claims

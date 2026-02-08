@@ -99,5 +99,5 @@ def create_app() -> FastAPI:
 
     return app
 
-
+# uvicorn main:app --host 0.0.0.0 --port 6969 --reload
 app = create_app()
