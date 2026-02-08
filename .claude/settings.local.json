@@ -9,7 +9,9 @@
       "Bash(env/Scripts/python:*)",
       "Bash(env/Scripts/pip install:*)",
       "Bash(../env/Scripts/python -c \"from main import app; print\\(''Server imports OK''\\)\")",
-      "Bash(./gradlew assembleDebug:*)"
+      "Bash(./gradlew assembleDebug:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(aws cognito-idp describe-identity-provider:*)"
     ]
   }
 }

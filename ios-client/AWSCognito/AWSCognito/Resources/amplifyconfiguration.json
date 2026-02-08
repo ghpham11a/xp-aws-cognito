@@ -24,7 +24,7 @@
                             "AppClientId": "2vsdsbma91rnq48ftd6harqlgb",
                             "SignInRedirectURI": "awscognito://callback",
                             "SignOutRedirectURI": "awscognito://signout",
-                            "Scopes": ["openid", "email", "profile", "aws.cognito.signin.user.admin"]
+                            "Scopes": ["openid", "email", "profile"]
                         }
                     }
                 }

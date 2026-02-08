@@ -29,12 +29,11 @@ enum APIError: Error, LocalizedError {
 }
 
 class APIService {
-    static let shared = APIService()
 
     // Use ngrok URL for device testing, localhost for simulator
     private let baseURL = "https://feedback-test.ngrok.io"
 
-    private init() {}
+    init() {}
 
     private func makeRequest<T: Decodable>(
         endpoint: String,

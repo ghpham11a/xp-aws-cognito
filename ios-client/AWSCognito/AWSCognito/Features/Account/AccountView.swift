@@ -10,16 +10,22 @@ struct AccountView: View {
     @Environment(RouteManager.self) private var routeManager
     @Environment(AuthManager.self) private var authManager
     
-    @State private var viewModel = ViewModel()
+    @State private var viewModel = AccountViewModel()
     
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 
                 if !authManager.isAuthenticated {
-                    LoginCard {
+                    
+                    LoginCard(onLoginTapped: {
                         authManager.presentLoginView()
-                    }
+                    }, greeting: {
+                        
+                    }, statement: {
+                        Text("Sign in to start managing your account")
+                    })
+                    
                 } else {
                     // Profile Card
                     VStack(alignment: .leading, spacing: 12) {
@@ -34,7 +40,6 @@ struct AccountView: View {
                     }
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(.systemBackground))
                     .cornerRadius(12)
                     .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                     

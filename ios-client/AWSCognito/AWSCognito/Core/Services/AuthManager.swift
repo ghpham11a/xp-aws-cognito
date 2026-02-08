@@ -138,9 +138,21 @@ final class AuthManager {
                 confirmationCode: code
             )
 
-            if result.isSignUpComplete {
+            switch result.nextStep {
+            case .completeAutoSignIn:
                 needsConfirmation = false
                 confirmationEmail = nil
+                let signInResult = try await Amplify.Auth.autoSignIn()
+                if signInResult.isSignedIn {
+                    isAuthenticated = true
+                    showLoginView = false
+                    await fetchUserAttributes()
+                }
+            case .done:
+                needsConfirmation = false
+                confirmationEmail = nil
+            default:
+                break
             }
         } catch let error as AuthError {
             authError = error.errorDescription

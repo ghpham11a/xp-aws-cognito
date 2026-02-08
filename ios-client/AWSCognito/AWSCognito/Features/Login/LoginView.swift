@@ -10,7 +10,7 @@ struct LoginView: View {
     @Environment(AuthManager.self) private var authManager
     @Environment(\.dismiss) private var dismiss
     
-    @State private var viewModel = ViewModel()
+    @State private var viewModel = LoginViewModel()
 
     var body: some View {
         ScrollView {
@@ -234,6 +234,10 @@ struct LoginView: View {
             Button(action: {
                 Task {
                     await authManager.confirmSignUp(code: viewModel.confirmationCode)
+                    if !authManager.needsConfirmation && !authManager.isAuthenticated {
+                        viewModel.isSignUpMode = false
+                        viewModel.clearFields()
+                    }
                 }
             }) {
                 if authManager.isLoading {

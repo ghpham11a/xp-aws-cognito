@@ -10,9 +10,7 @@ struct HomeView: View {
     @Environment(RouteManager.self) private var routeManager
     @Environment(AuthManager.self) private var authManager
 
-    @State private var publicMessage: String?
-    @State private var isLoading = true
-    @State private var error: String?
+    @State private var viewModel = DependencyContainer.shared.resolve(HomeViewModel.self)
 
     var body: some View {
         ScrollView {
@@ -22,12 +20,12 @@ struct HomeView: View {
                     Text("Server Message")
                         .font(.headline)
 
-                    if isLoading {
+                    if viewModel.isLoading {
                         ProgressView()
-                    } else if let error = error {
+                    } else if let error = viewModel.error {
                         Text(error)
                             .foregroundColor(.red)
-                    } else if let message = publicMessage {
+                    } else if let message = viewModel.publicMessage {
                         Text(message)
                             .foregroundColor(.secondary)
                     }
@@ -36,39 +34,12 @@ struct HomeView: View {
                 .padding()
                 .background(Color(.secondarySystemBackground))
                 .cornerRadius(12)
-
-                // Getting Started Card
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Getting Started")
-                        .font(.headline)
-
-                    Text("1. Navigate to the Dashboard tab to sign in or create an account\n2. Once authenticated, you'll see your profile and feed\n3. Use the Account tab to manage your password and sign out")
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(12)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color(.separator), lineWidth: 1)
-                )
             }
             .padding()
         }
         .task {
-            await fetchPublicMessage()
+            await viewModel.fetchPublicMessage()
         }
-    }
-
-    private func fetchPublicMessage() async {
-        do {
-            let response = try await APIService.shared.fetchPublicMessage()
-            publicMessage = response.message
-        } catch {
-            self.error = error.localizedDescription
-        }
-        isLoading = false
     }
 }
 

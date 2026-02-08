@@ -7,12 +7,30 @@
 
 import SwiftUI
 
-struct LoginCard: View {
+struct LoginCard<Greeting: View, Statement: View>: View {
     
     var onLoginTapped: () -> Void
+    private let greeting: Greeting
+    private let statement: Statement
+    
+    init(
+        onLoginTapped: @escaping () -> Void,
+        @ViewBuilder greeting: () -> Greeting,
+        @ViewBuilder statement: () -> Statement
+    ) {
+        self.onLoginTapped = onLoginTapped
+        self.greeting = greeting()
+        self.statement = statement()
+    }
     
     var body: some View {
         VStack {
+            
+            greeting
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            statement
+                .frame(maxWidth: .infinity, alignment: .leading)
             
             Button(action: {
                 onLoginTapped()
@@ -25,6 +43,7 @@ struct LoginCard: View {
                     .cornerRadius(10)
             }
         }
+        .padding()
     }
 }
 
