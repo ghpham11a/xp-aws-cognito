@@ -10,8 +10,8 @@ import AWSCognitoAuthPlugin
 @main
 struct AWSCognitoApp: App {
     
-    @State private var routeManager = RouteManager()
-    @State private var authManager = AuthManager()
+    @State private var routeManager = DependencyContainer.shared.resolve(RouteManager.self)
+    @State private var authManager = DependencyContainer.shared.resolve(AuthManager.self)
     
     init() {
         configureAmplify()

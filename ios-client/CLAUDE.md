@@ -5,70 +5,64 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Open in Xcode (SPM dependencies resolve automatically)
-open AWSCognito/AWSCognito.xcodeproj
-
 # Build from command line
-xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 15' build
+xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # Run tests
-xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 15' test
+xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
 ## Architecture
 
-Feature-based SwiftUI app with Observable state management and AWS Amplify for Cognito authentication.
+Feature-based SwiftUI app with `@Observable` state management (iOS 17+), Swinject dependency injection, and AWS Amplify for Cognito authentication.
 
 ```
 AWSCognito/AWSCognito/
 ├── App/
-│   ├── AWSCognitoApp.swift      # @main entry, Amplify configuration
-│   └── ContentView.swift         # Root TabView with 3 tabs
+│   ├── AWSCognitoApp.swift           # @main entry, Amplify config, DI resolution
+│   └── ContentView.swift              # Root TabView (home, dashboard, account)
 ├── Core/
-│   ├── Navigation/RouteManager.swift  # Tab + NavigationPath state
-│   ├── Network/APIService.swift       # URLSession API client (singleton)
-│   └── Services/AuthManager.swift     # Auth state + Cognito operations
-├── Data/Models/                  # Codable structs (User, FeedItem)
-├── Features/                     # Feature modules with View + ViewModel
-│   ├── Home/HomeView.swift
-│   ├── Dashboard/DashboardView.swift
-│   ├── Login/LoginView.swift, LoginView+ViewModel.swift
-│   └── Account/AccountView.swift, AccountView+ViewModel.swift
-├── Shared/Views/                 # Reusable components (LoginCard)
-└── Resources/amplifyconfiguration.json  # Cognito pool config
+│   ├── DI/DependencyContainer.swift   # Swinject container (singleton registrations)
+│   ├── Navigation/RouteManager.swift  # Tab selection + NavigationPath per tab
+│   └── Services/AuthManager.swift     # Auth state + all Cognito operations
+├── Data/
+│   ├── Models/                        # Codable structs (User, FeedItem, MessageResponse)
+│   ├── Network/APIService.swift       # URLSession API client
+│   └── Repositories/MessagesRepository.swift  # Wraps APIService, handles token retrieval
+├── Features/                          # View + ViewModel per feature
+│   ├── Home/        (HomeView, HomeViewModel)
+│   ├── Dashboard/   (DashboardView, DashboardViewModel)
+│   ├── Login/       (LoginView, LoginViewModel)
+│   └── Account/     (AccountView, AccountViewModel)
+├── Shared/Views/LoginCard.swift       # Reusable login prompt card
+└── Resources/amplifyconfiguration.json
 ```
 
 ## Key Patterns
 
-**State Management:**
-- `AuthManager` and `RouteManager` use `@Observable` macro (iOS 17+)
-- Injected via `.environment()` in app entry, accessed via `@Environment` in views
-- Feature ViewModels are nested structs inside Views (e.g., `LoginView.ViewModel`)
+**Dependency Injection:**
+- `DependencyContainer.shared` (Swinject) registers services, repositories, and some ViewModels
+- Singletons (`.container` scope): APIService, AuthManager, RouteManager, MessagesRepository
+- Transient (new per resolve): HomeViewModel, DashboardViewModel (registered in container because they depend on MessagesRepository)
+- LoginViewModel and AccountViewModel are **not** in the DI container — they're simple `@Observable` classes instantiated directly in views via `@State private var viewModel = LoginViewModel()`
+- ViewModels that need repository access are resolved via `@State private var viewModel = DependencyContainer.shared.resolve(SomeViewModel.self)`
+- AuthManager and RouteManager resolved in `AWSCognitoApp` and passed via `.environment()`
 
-**Navigation:**
-- Tab-based with `TabView` and `Tab` enum (home, dashboard, account)
-- Each tab has independent `NavigationPath` in RouteManager
-- Login presented as `.fullScreenCover` modal
+**API call flow:** View -> ViewModel -> MessagesRepository -> APIService. The repository handles token retrieval via AuthManager so ViewModels don't deal with tokens directly.
 
-**API Calls:**
-- `APIService.shared` singleton with generic `makeRequest<T>()`
-- Bearer token auth via `AuthManager.getIdToken()`
-- Base URL hardcoded for ngrok tunneling (`https://feedback-test.ngrok.io`)
+**Navigation:** Tab-based `TabView` with independent `NavigationPath` per tab in `RouteManager`. Login presented as `.fullScreenCover` modal triggered by `authManager.showLoginView`.
 
-**Auth Flow:**
-- Sign up/in via `Amplify.Auth` -> sets `authManager.isAuthenticated`
-- Token retrieval: `fetchAuthSession()` -> cast to `AuthCognitoTokensProvider` -> get ID token
-- Password change and sign out handled in AuthManager
+**Build setting:** `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — all types are implicitly `@MainActor` unless opted out.
 
-## Dependencies
+**Xcode project uses `PBXFileSystemSynchronizedRootGroup`** — new files in the `AWSCognito/` folder are auto-included. Adding SPM dependencies requires manual `project.pbxproj` edits.
 
-Single dependency via Swift Package Manager:
+## Dependencies (SPM)
+
 - **amplify-swift** (>= 2.0.0): `Amplify` + `AWSCognitoAuthPlugin`
+- **Swinject** (>= 2.10.0): Dependency injection container
 
 ## Configuration
 
-Cognito settings in `Resources/amplifyconfiguration.json`:
-- Pool ID, App Client ID, Region
-- Auth flow type: `USER_SRP_AUTH`
-
-To change the API base URL, edit `APIService.swift:12`.
+- Cognito settings: `Resources/amplifyconfiguration.json` (includes OAuth for Google/Apple sign-in)
+- API base URL: hardcoded in `APIService.swift` (`https://feedback-test.ngrok.io`)
+- URL scheme `awscognito://` registered in `Info.plist` for OAuth callbacks

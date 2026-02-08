@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AWS Cognito authentication demo with Next.js web frontend, Android native app, iOS native app, and FastAPI backend. Demonstrates user authentication, JWT validation, and protected API endpoints.
+AWS Cognito authentication demo with four clients (Next.js, Android, iOS) and a FastAPI backend. All clients authenticate via AWS Amplify, send JWTs to the backend, and the backend validates tokens against Cognito JWKS.
 
 ## Commands
 
@@ -23,73 +23,57 @@ npm run lint     # Run ESLint
 
 **iOS App (ios-client/AWSCognito/):**
 ```bash
-# Open in Xcode - SPM dependencies resolve automatically
-open AWSCognito.xcodeproj
-xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 15' build
+xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
 **Backend (server/app/):**
 ```bash
-uvicorn main:app --port 6969 --reload   # Start dev server
-pip install -r requirements.txt          # Install dependencies (from server/)
+uvicorn main:app --port 6969 --reload   # Start dev server (run from server/app/)
+pip install -r requirements.txt          # Install dependencies (run from server/)
 ```
 
-### Tunneling for mobile testing
-
+**Tunneling for mobile testing:**
 ```bash
 ngrok http --hostname=feedback-test.ngrok.io 6969
 ```
 
 ## Architecture
 
-```
-nextjs-client/                    # Next.js 16 frontend
-├── app/
-│   ├── layout.tsx                # Root layout with AmplifyProvider
-│   └── page.tsx                  # Tab-based SPA (home/dashboard/account)
-├── components/
-│   ├── AmplifyProvider.tsx       # Initializes Amplify auth
-│   ├── DashboardContent.tsx      # Fetches /users/me and /feed from backend
-│   └── UserManagement.tsx        # Password change, sign out
-└── lib/amplify-config.ts         # Cognito configuration
+All four clients share the same authentication flow and hit the same backend API. The iOS and Android Cognito configs include OAuth sections for Google/Apple sign-in; the Next.js config is minimal.
 
-android-client/                   # Android Jetpack Compose app
-├── app/src/main/
-│   ├── res/raw/amplifyconfiguration.json  # Cognito config
-│   └── java/com/example/awscognito/
-│       ├── CognitoApp.kt         # Application class, Amplify init
-│       ├── MainActivity.kt       # Main activity with Compose
-│       ├── data/
-│       │   ├── api/              # Retrofit client for backend
-│       │   └── model/            # User, FeedItem data classes
-│       └── ui/
-│           ├── screens/          # Home, Dashboard, Account, Login screens
-│           └── viewmodel/        # AuthViewModel (auth state + API calls)
+### Backend (server/app/)
 
-ios-client/AWSCognito/            # iOS SwiftUI app
-├── AWSCognito/
-│   ├── AWSCognitoApp.swift       # App entry, Amplify initialization
-│   ├── amplifyconfiguration.json # Cognito config
-│   ├── Models/                   # User, FeedItem structs
-│   ├── Services/APIService.swift # URLSession-based API client
-│   ├── ViewModels/AuthViewModel.swift  # ObservableObject for auth state
-│   └── Views/                    # MainView, LoginView, Home, Dashboard, Account
+FastAPI with app factory pattern (`create_app()` in `main.py`). Routers: `users.py` (JWT validation, just-in-time user provisioning to `data/users.json`) and `messages.py` (public + private message endpoints). All protected endpoints use `Depends(verify_token)`. JWT validation uses `python-jose` with JWKS caching. Custom middleware stack: RequestID, Logging, SecurityHeaders. Config via `pydantic-settings` loaded from `.env`.
 
-server/app/                       # FastAPI backend
-├── main.py                       # App setup, CORS, routers
-├── data/users.json               # Local user storage (created at runtime)
-└── routers/
-    ├── users.py                  # JWT validation, just-in-time user provisioning
-    └── feed.py                   # Protected feed endpoint (future: role-based)
-```
+### Next.js Frontend (nextjs-client/)
+
+Next.js 16 + React 19 + TypeScript + Tailwind 4. Auth state managed via `AuthProvider` context (`lib/auth-context.tsx`). `AmplifyProvider` component initializes Amplify and wraps the app. Route-based pages under `app/` (home, dashboard, account). Amplify config in `lib/amplify-config.ts`.
+
+### Android (android-client/)
+
+Kotlin + Jetpack Compose + Material 3, single-activity architecture. `AuthViewModel` (in `shared/viewmodel/`) manages auth state and API calls using StateFlow. Feature screens in `features/` (home, dashboard, account, login). Retrofit + OkHttp for API calls (`data/networking/`). Cognito config in `res/raw/amplifyconfiguration.json`. Amplify callbacks converted to suspend functions via `suspendCoroutine`.
+
+### iOS (ios-client/AWSCognito/)
+
+SwiftUI with `@Observable` macro (iOS 17+). Swinject DI container (`Core/DI/DependencyContainer.swift`) registers all services, repositories, and ViewModels. `AuthManager` and `RouteManager` are resolved from the container and injected via `.environment()`. Feature ViewModels (`HomeViewModel`, `DashboardViewModel`, `LoginViewModel`, `AccountViewModel`) are resolved from the container via `@State`. API calls flow: View -> ViewModel -> `MessagesRepository` -> `APIService`. Cognito config in `Resources/amplifyconfiguration.json`. SPM dependencies: amplify-swift (>= 2.0.0) + Swinject (>= 2.10.0).
+
+**Important iOS build setting:** `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` — all types are implicitly `@MainActor`.
+
+**Xcode project uses `PBXFileSystemSynchronizedRootGroup`** — new Swift files added to the `AWSCognito/` directory are automatically included in the build without manual pbxproj edits. However, adding new SPM dependencies requires editing `project.pbxproj` (add `PBXBuildFile`, `XCSwiftPackageProductDependency`, framework build phase entry, and `packageProductDependencies`).
 
 ## Auth Flow
 
-1. User signs up/in via Amplify Authenticator → Cognito issues JWT
-2. Frontend calls backend with `Authorization: Bearer <idToken>`
+1. User signs up/in via Amplify → Cognito issues JWT
+2. Client calls backend with `Authorization: Bearer <idToken>`
 3. Backend validates JWT against Cognito JWKS (public keys)
 4. `GET /users/me` creates local user record on first call (just-in-time provisioning)
-5. User data stored in `server/app/data/users.json`
+
+## API Endpoints
+
+**Protected (JWT required):** `GET /users/me`, `GET /users`, `GET /users/{user_id}`, `GET /feed`, `GET /messages/private`
+
+**Public:** `GET /`, `GET /health`, `GET /messages/public`
 
 ## Environment Variables
 
@@ -108,28 +92,12 @@ COGNITO_USER_POOL_ID=<user-pool-id>
 COGNITO_CLIENT_ID=<client-id>
 ```
 
+**Mobile clients:** Cognito settings are in `amplifyconfiguration.json` files, not environment variables. API base URL is hardcoded in `APIService.swift` (iOS) and `ApiClient.kt` (Android) — currently set to the ngrok tunnel URL.
+
 **Important:** Cognito App Client must be a "Public client" without a client secret.
 
 ## Key Patterns
 
-- **Next.js**: Uses `fetchAuthSession()` from `aws-amplify/auth` to get JWT tokens
-- **Android**: Uses `Amplify.Auth.fetchAuthSession()` to get tokens, Retrofit for API calls
-- **iOS**: Uses `Amplify.Auth.fetchAuthSession()` with `AuthCognitoTokensProvider` to get tokens, URLSession for API calls
-- **Backend**: Uses `python-jose` to validate JWTs against Cognito JWKS
-- All protected endpoints use `Depends(verify_token)` for auth
-- Feed endpoint prepared for role-based filtering via `claims.get("cognito:groups")`
-
-## Android-Specific Notes
-
-- API base URL in `ApiClient.kt` - uses ngrok URL for physical device, `10.0.2.2` for emulator
-- Cognito config in `res/raw/amplifyconfiguration.json` (not environment variables)
-- Uses Jetpack Compose with Material 3, single-activity architecture
-- `AuthViewModel` manages both auth state and dashboard data loading
-
-## iOS-Specific Notes
-
-- API base URL in `APIService.swift` - uses ngrok URL for device testing
-- Cognito config in `amplifyconfiguration.json` (same format as Android)
-- Uses SwiftUI with tab-based navigation, `@StateObject` for view model
-- `AuthViewModel` is an `ObservableObject` with `@Published` properties for reactive UI
-- Amplify Swift added via Swift Package Manager (amplify-swift v2.x)
+- **Token retrieval:** Next.js uses `fetchAuthSession()`, Android casts to `AWSCognitoAuthSession`, iOS casts to `AuthCognitoTokensProvider`
+- **Social sign-in:** iOS supports Apple and Google via `signInWithWebUI(for:)`. Next.js uses `signInWithRedirect({ provider: 'Google' })`. Android has placeholders.
+- **iOS DI:** All services/ViewModels created by Swinject. Views resolve ViewModels via `DependencyContainer.shared.resolve()`. Singletons (`.container` scope): APIService, AuthManager, RouteManager, MessagesRepository. Transient: ViewModels.

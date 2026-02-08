@@ -10,16 +10,19 @@ struct DashboardView: View {
     @Environment(RouteManager.self) private var routeManager
     @Environment(AuthManager.self) private var authManager
 
-    @State private var privateMessage: String?
-    @State private var isLoading = false
-    @State private var error: String?
+    @State private var viewModel = DependencyContainer.shared.resolve(DashboardViewModel.self)
 
     var body: some View {
         ScrollView {
             if !authManager.isAuthenticated {
-                LoginCard {
+
+                LoginCard(onLoginTapped: {
                     authManager.presentLoginView()
-                }
+                }, greeting: {
+                    Text("Nothing in your dashboard yet")
+                }, statement: {
+                    Text("Sign in to see a message")
+                })
             } else {
                 VStack(spacing: 16) {
                     // Welcome card
@@ -41,12 +44,12 @@ struct DashboardView: View {
                         Text("Server Message")
                             .font(.headline)
 
-                        if isLoading {
+                        if viewModel.isLoading {
                             ProgressView()
-                        } else if let error = error {
+                        } else if let error = viewModel.error {
                             Text(error)
                                 .foregroundColor(.red)
-                        } else if let message = privateMessage {
+                        } else if let message = viewModel.privateMessage {
                             Text(message)
                                 .foregroundColor(.secondary)
                         }
@@ -61,36 +64,16 @@ struct DashboardView: View {
         }
         .task {
             if authManager.isAuthenticated {
-                await fetchPrivateMessage()
+                await viewModel.fetchPrivateMessage()
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
                 Task {
-                    await fetchPrivateMessage()
+                    await viewModel.fetchPrivateMessage()
                 }
             }
         }
-    }
-
-    private func fetchPrivateMessage() async {
-        isLoading = true
-        error = nil
-
-        do {
-            guard let token = try await authManager.getIdToken() else {
-                error = "Not authenticated"
-                isLoading = false
-                return
-            }
-
-            let response = try await APIService.shared.fetchPrivateMessage(token: token)
-            privateMessage = response.message
-        } catch {
-            self.error = error.localizedDescription
-        }
-
-        isLoading = false
     }
 }
 
