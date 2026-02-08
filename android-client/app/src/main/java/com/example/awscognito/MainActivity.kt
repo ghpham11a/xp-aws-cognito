@@ -12,9 +12,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.awscognito.ui.screens.MainScreen
-import com.example.awscognito.ui.theme.AWSCognitoTheme
-import com.example.awscognito.ui.viewmodel.AuthViewModel
+import com.example.awscognito.shared.screens.MainScreen
+import com.example.awscognito.shared.theme.AWSCognitoTheme
+import com.example.awscognito.shared.viewmodel.AuthViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,6 +41,8 @@ class MainActivity : ComponentActivity() {
                         onSignIn = authViewModel::signIn,
                         onSignUp = authViewModel::signUp,
                         onConfirmSignUp = authViewModel::confirmSignUp,
+                        onSignInWithGoogle = authViewModel::signInWithGoogle,
+                        onSignInWithApple = authViewModel::signInWithApple,
                         onSignOut = authViewModel::signOut,
                         onChangePassword = authViewModel::changePassword,
                         onLoadDashboardData = authViewModel::loadDashboardData,

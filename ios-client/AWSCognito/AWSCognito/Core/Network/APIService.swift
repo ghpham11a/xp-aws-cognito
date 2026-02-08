@@ -81,4 +81,42 @@ class APIService {
     func fetchFeed(token: String) async throws -> [FeedItem] {
         return try await makeRequest(endpoint: "/feed", token: token)
     }
+
+    func fetchPublicMessage() async throws -> MessageResponse {
+        guard let url = URL(string: "\(baseURL)/messages/public") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                throw APIError.httpError(httpResponse.statusCode)
+            }
+
+            let decoder = JSONDecoder()
+            do {
+                return try decoder.decode(MessageResponse.self, from: data)
+            } catch {
+                throw APIError.decodingError(error)
+            }
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw APIError.networkError(error)
+        }
+    }
+
+    func fetchPrivateMessage(token: String) async throws -> MessageResponse {
+        return try await makeRequest(endpoint: "/messages/private", token: token)
+    }
 }

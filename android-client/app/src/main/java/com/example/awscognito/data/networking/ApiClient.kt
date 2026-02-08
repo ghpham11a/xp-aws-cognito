@@ -1,4 +1,4 @@
-package com.example.awscognito.data.api
+package com.example.awscognito.data.networking
 
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor

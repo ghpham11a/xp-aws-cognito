@@ -12,11 +12,17 @@ interface FeedItem {
   type: string;
 }
 
+interface MessageResponse {
+  message: string;
+  authenticated: boolean;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:6969";
 
 export default function DashboardContent() {
   const { user } = useAuth();
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+  const [privateMessage, setPrivateMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +60,15 @@ export default function DashboardContent() {
 
         const data = await response.json();
         setFeedItems(data);
+
+        // Fetch private message
+        const messageResponse = await fetch(`${API_URL}/messages/private`, {
+          headers,
+        });
+        if (messageResponse.ok) {
+          const messageData: MessageResponse = await messageResponse.json();
+          setPrivateMessage(messageData.message);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load feed");
       } finally {
@@ -74,6 +89,11 @@ export default function DashboardContent() {
       <div className="welcome-card">
         <h2>Welcome, {user?.signInDetails?.loginId || "User"}!</h2>
         <p>You have successfully authenticated with AWS Cognito.</p>
+      </div>
+
+      <div className="server-message-card">
+        <h3>Server Message</h3>
+        {privateMessage && <p className="message">{privateMessage}</p>}
       </div>
 
       <div className="feed-section">

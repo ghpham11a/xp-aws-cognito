@@ -1,4 +1,4 @@
-package com.example.awscognito.ui.screens
+package com.example.awscognito.shared.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -10,11 +10,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.awscognito.ui.viewmodel.AuthState
-import com.example.awscognito.ui.viewmodel.DashboardState
+import com.example.awscognito.features.account.AccountScreen
+import com.example.awscognito.features.dashboard.DashboardScreen
+import com.example.awscognito.features.home.HomeScreen
+import com.example.awscognito.features.login.LoginScreen
+import com.example.awscognito.shared.viewmodel.AuthState
+import com.example.awscognito.shared.viewmodel.DashboardState
 
 enum class Tab(
     val title: String,
@@ -34,6 +37,8 @@ fun MainScreen(
     onSignIn: (String, String) -> Unit,
     onSignUp: (String, String) -> Unit,
     onConfirmSignUp: (String, String, String) -> Unit,
+    onSignInWithGoogle: () -> Unit,
+    onSignInWithApple: () -> Unit,
     onSignOut: () -> Unit,
     onChangePassword: (String, String, () -> Unit) -> Unit,
     onLoadDashboardData: () -> Unit,
@@ -99,31 +104,35 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Show login overlay for protected tabs when not authenticated
-            if (showLoginOverlay || (!authState.isAuthenticated && selectedTab != Tab.HOME)) {
+            // Always show the selected tab content
+            when (selectedTab) {
+                Tab.HOME -> HomeScreen()
+                Tab.DASHBOARD -> DashboardScreen(
+                    authState = authState,
+                    dashboardState = dashboardState,
+                    onLoadData = onLoadDashboardData,
+                    onShowLogin = { showLoginOverlay = true }
+                )
+                Tab.ACCOUNT -> AccountScreen(
+                    authState = authState,
+                    onChangePassword = onChangePassword,
+                    onSignOut = onSignOut,
+                    onShowLogin = { showLoginOverlay = true }
+                )
+            }
+
+            // Show login overlay on top when requested
+            if (showLoginOverlay) {
                 LoginScreen(
                     authState = authState,
                     onSignIn = onSignIn,
                     onSignUp = onSignUp,
                     onConfirmSignUp = onConfirmSignUp,
-                    onClearError = onClearError
+                    onSignInWithGoogle = onSignInWithGoogle,
+                    onSignInWithApple = onSignInWithApple,
+                    onClearError = onClearError,
+                    onDismiss = { showLoginOverlay = false }
                 )
-            } else {
-                when (selectedTab) {
-                    Tab.HOME -> HomeScreen()
-                    Tab.DASHBOARD -> DashboardScreen(
-                        authState = authState,
-                        dashboardState = dashboardState,
-                        onLoadData = onLoadDashboardData,
-                        onShowLogin = { showLoginOverlay = true }
-                    )
-                    Tab.ACCOUNT -> AccountScreen(
-                        authState = authState,
-                        onChangePassword = onChangePassword,
-                        onSignOut = onSignOut,
-                        onShowLogin = { showLoginOverlay = true }
-                    )
-                }
             }
         }
     }

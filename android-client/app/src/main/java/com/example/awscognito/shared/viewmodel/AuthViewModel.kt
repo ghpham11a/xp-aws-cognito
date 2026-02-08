@@ -1,13 +1,12 @@
-package com.example.awscognito.ui.viewmodel
+package com.example.awscognito.shared.viewmodel
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.amplifyframework.auth.AuthUserAttribute
 import com.amplifyframework.auth.AuthUserAttributeKey
 import com.amplifyframework.auth.options.AuthSignUpOptions
 import com.amplifyframework.core.Amplify
-import com.example.awscognito.data.api.ApiClient
+import com.example.awscognito.data.networking.ApiClient
 import com.example.awscognito.data.model.FeedItem
 import com.example.awscognito.data.model.User
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +30,7 @@ data class AuthState(
 data class DashboardState(
     val user: User? = null,
     val feedItems: List<FeedItem> = emptyList(),
+    val privateMessage: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -240,10 +240,12 @@ class AuthViewModel : ViewModel() {
                 val bearerToken = "Bearer $token"
                 val user = ApiClient.apiService.getCurrentUser(bearerToken)
                 val feedItems = ApiClient.apiService.getFeed(bearerToken)
+                val privateMessage = ApiClient.apiService.getPrivateMessage(bearerToken)
 
                 _dashboardState.value = DashboardState(
                     user = user,
                     feedItems = feedItems,
+                    privateMessage = privateMessage.message,
                     isLoading = false
                 )
             } catch (e: Exception) {
@@ -276,6 +278,30 @@ class AuthViewModel : ViewModel() {
 
     fun clearError() {
         _authState.value = _authState.value.copy(error = null)
+    }
+
+    fun signInWithGoogle() {
+        viewModelScope.launch {
+            _authState.value = _authState.value.copy(isLoading = true, error = null)
+            // TODO: Configure OAuth in Cognito and use Amplify.Auth.signInWithSocialWebUI
+            // Example: Amplify.Auth.signInWithSocialWebUI(AuthProvider.google(), activity, ...)
+            _authState.value = _authState.value.copy(
+                isLoading = false,
+                error = "Google Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool."
+            )
+        }
+    }
+
+    fun signInWithApple() {
+        viewModelScope.launch {
+            _authState.value = _authState.value.copy(isLoading = true, error = null)
+            // TODO: Configure OAuth in Cognito and use Amplify.Auth.signInWithSocialWebUI
+            // Example: Amplify.Auth.signInWithSocialWebUI(AuthProvider.apple(), activity, ...)
+            _authState.value = _authState.value.copy(
+                isLoading = false,
+                error = "Apple Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool."
+            )
+        }
     }
 
     companion object {

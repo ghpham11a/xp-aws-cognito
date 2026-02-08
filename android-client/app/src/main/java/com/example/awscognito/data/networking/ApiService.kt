@@ -1,6 +1,7 @@
-package com.example.awscognito.data.api
+package com.example.awscognito.data.networking
 
 import com.example.awscognito.data.model.FeedItem
+import com.example.awscognito.data.model.MessageResponse
 import com.example.awscognito.data.model.User
 import retrofit2.http.GET
 import retrofit2.http.Header
@@ -15,4 +16,12 @@ interface ApiService {
     suspend fun getFeed(
         @Header("Authorization") token: String
     ): List<FeedItem>
+
+    @GET("messages/public")
+    suspend fun getPublicMessage(): MessageResponse
+
+    @GET("messages/private")
+    suspend fun getPrivateMessage(
+        @Header("Authorization") token: String
+    ): MessageResponse
 }

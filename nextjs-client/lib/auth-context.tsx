@@ -20,6 +20,7 @@ import {
   confirmResetPassword,
   updatePassword,
   resendSignUpCode,
+  signInWithRedirect,
 } from "aws-amplify/auth";
 
 export type AuthStatus = "configuring" | "authenticated" | "unauthenticated";
@@ -43,6 +44,8 @@ interface AuthContextType {
   confirmResetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
   updatePassword: (oldPassword: string, newPassword: string) => Promise<void>;
   refreshSession: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -207,6 +210,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await checkAuth();
   };
 
+  const handleSignInWithGoogle = async () => {
+    // TODO: Configure OAuth in Cognito and update amplify-config.ts with OAuth settings
+    // Then uncomment: await signInWithRedirect({ provider: "Google" });
+    throw new Error("Google Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool and update amplify-config.ts.");
+  };
+
+  const handleSignInWithApple = async () => {
+    // TODO: Configure OAuth in Cognito and update amplify-config.ts with OAuth settings
+    // Then uncomment: await signInWithRedirect({ provider: "Apple" });
+    throw new Error("Apple Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool and update amplify-config.ts.");
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -221,6 +236,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         confirmResetPassword: handleConfirmResetPassword,
         updatePassword: handleUpdatePassword,
         refreshSession: handleRefreshSession,
+        signInWithGoogle: handleSignInWithGoogle,
+        signInWithApple: handleSignInWithApple,
       }}
     >
       {children}

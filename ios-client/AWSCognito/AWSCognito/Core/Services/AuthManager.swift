@@ -81,7 +81,7 @@ final class AuthManager {
         }
     }
     
-    private func getIdToken() async throws -> String? {
+    func getIdToken() async throws -> String? {
         let session = try await Amplify.Auth.fetchAuthSession()
         if let cognitoTokenProvider = session as? AuthCognitoTokensProvider {
             let tokens = try cognitoTokenProvider.getCognitoTokens().get()

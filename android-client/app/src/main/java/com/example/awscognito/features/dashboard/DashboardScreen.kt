@@ -1,4 +1,4 @@
-package com.example.awscognito.ui.screens
+package com.example.awscognito.features.dashboard
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,8 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.awscognito.data.model.FeedItem
-import com.example.awscognito.ui.viewmodel.AuthState
-import com.example.awscognito.ui.viewmodel.DashboardState
+import com.example.awscognito.shared.viewmodel.AuthState
+import com.example.awscognito.shared.viewmodel.DashboardState
 
 @Composable
 fun DashboardScreen(
@@ -23,8 +23,40 @@ fun DashboardScreen(
     onShowLogin: () -> Unit
 ) {
     if (!authState.isAuthenticated) {
-        LaunchedEffect(Unit) {
-            onShowLogin()
+        // Show login prompt when not authenticated
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .padding(32.dp)
+                    .fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Login Required",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Sign in to view your dashboard and feed",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = onShowLogin,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Login")
+                    }
+                }
+            }
         }
         return
     }
@@ -65,38 +97,32 @@ fun DashboardScreen(
             }
         }
 
-        // Account info card
+        // Private message card
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Your Account Info",
+                        text = "Server Message",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-
+                    Spacer(modifier = Modifier.height(8.dp))
                     if (dashboardState.isLoading) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    } else if (dashboardState.user != null) {
-                        InfoRow(label = "User ID", value = dashboardState.user.userId)
-                        InfoRow(label = "Email", value = dashboardState.user.email)
-                        dashboardState.user.name?.let {
-                            InfoRow(label = "Name", value = it)
-                        }
-                        InfoRow(label = "Created", value = dashboardState.user.createdAt)
+                    } else if (dashboardState.privateMessage != null) {
+                        Text(
+                            text = dashboardState.privateMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                     }
                 }
             }
-        }
-
-        // Feed section header
-        item {
-            Text(
-                text = "Your Feed",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
-            )
         }
 
         // Error state

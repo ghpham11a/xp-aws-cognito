@@ -1,4 +1,4 @@
-package com.example.awscognito.ui.theme
+package com.example.awscognito.shared.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
