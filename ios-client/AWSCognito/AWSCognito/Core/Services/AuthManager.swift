@@ -9,7 +9,6 @@ import SwiftUI
 import Amplify
 import AWSPluginsCore
 import AWSCognitoAuthPlugin
-import AuthenticationServices
 
 @Observable
 @MainActor
@@ -112,6 +111,7 @@ final class AuthManager {
                 await signIn(email: email, password: password)
             case .completeAutoSignIn:
                 isAuthenticated = true
+                showLoginView = false
                 await fetchUserAttributes()
             }
         } catch let error as AuthError {
@@ -163,9 +163,10 @@ final class AuthManager {
 
             if result.isSignedIn {
                 isAuthenticated = true
+                showLoginView = false
                 await fetchUserAttributes()
             }
-            
+
             if case .confirmSignUp(_) = result.nextStep {
                 needsConfirmation = true
                 confirmationEmail = email
@@ -185,7 +186,7 @@ final class AuthManager {
     func signOut() async {
         isLoading = true
 
-        _ = await Amplify.Auth.signOut()
+        _ = await Amplify.Auth.signOut(options: .init(globalSignOut: false))
         isAuthenticated = false
         userId = nil
         email = nil
@@ -220,26 +221,20 @@ final class AuthManager {
 
     // MARK: - Social Sign In
 
-    func handleAppleSignIn(result: Result<ASAuthorization, Error>) async {
+    func signInWithApple() async {
         isLoading = true
         authError = nil
 
-        switch result {
-        case .success(let authorization):
-            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-                let userId = appleIDCredential.user
-                let email = appleIDCredential.email
-                let fullName = appleIDCredential.fullName
-
-                print("Apple Sign In - User ID: \(userId)")
-                print("Apple Sign In - Email: \(email ?? "not provided")")
-                print("Apple Sign In - Name: \(fullName?.givenName ?? "") \(fullName?.familyName ?? "")")
-
-                // TODO: Implement Cognito social sign-in with Apple
-                // Use Amplify.Auth.signInWithWebUI(for: .apple, ...)
-                authError = "Apple Sign In not yet configured with Cognito"
+        do {
+            let result = try await Amplify.Auth.signInWithWebUI(for: .apple, presentationAnchor: getPresentationAnchor(), options: .preferPrivateSession())
+            if result.isSignedIn {
+                isAuthenticated = true
+                showLoginView = false
+                await fetchUserAttributes()
             }
-        case .failure(let error):
+        } catch let error as AuthError {
+            authError = error.errorDescription
+        } catch {
             authError = error.localizedDescription
         }
 
@@ -250,10 +245,28 @@ final class AuthManager {
         isLoading = true
         authError = nil
 
-        // TODO: Implement Cognito social sign-in with Google
-        // Use Amplify.Auth.signInWithWebUI(for: .google, ...)
-        authError = "Google Sign In not yet configured with Cognito"
+        do {
+            let result = try await Amplify.Auth.signInWithWebUI(for: .google, presentationAnchor: getPresentationAnchor(), options: .preferPrivateSession())
+            if result.isSignedIn {
+                isAuthenticated = true
+                showLoginView = false
+                await fetchUserAttributes()
+            }
+        } catch let error as AuthError {
+            authError = error.errorDescription
+        } catch {
+            authError = error.localizedDescription
+        }
 
         isLoading = false
+    }
+
+    private func getPresentationAnchor() -> AuthUIPresentationAnchor {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = scene.windows.first
+        else {
+            fatalError("No window found")
+        }
+        return window
     }
 }
