@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import AuthenticationServices
 
 struct LoginView: View {
     
@@ -177,20 +176,23 @@ struct LoginView: View {
             .padding(.top, 8)
 
             // Apple Sign In
-            SignInWithAppleButton(
-                viewModel.isSignUpMode ? .signUp : .signIn,
-                onRequest: { request in
-                    request.requestedScopes = [.email, .fullName]
-                },
-                onCompletion: { result in
-                    Task {
-                        await authManager.handleAppleSignIn(result: result)
-                    }
+            Button(action: {
+                Task {
+                    await authManager.signInWithApple()
                 }
-            )
-            .signInWithAppleButtonStyle(.black)
-            .frame(height: 50)
-            .cornerRadius(10)
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "apple.logo")
+                        .font(.title2)
+                    Text(viewModel.isSignUpMode ? "Sign up with Apple" : "Sign in with Apple")
+                        .fontWeight(.medium)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.black)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
 
             // Google Sign In
             Button(action: {
