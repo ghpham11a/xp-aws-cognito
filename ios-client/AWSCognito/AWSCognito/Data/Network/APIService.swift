@@ -118,4 +118,78 @@ class APIService {
     func fetchPrivateMessage(token: String) async throws -> MessageResponse {
         return try await makeRequest(endpoint: "/messages/private", token: token)
     }
+
+    // MARK: - Apple Sign In
+
+    func exchangeAppleToken(
+        identityToken: String,
+        authorizationCode: String,
+        email: String?,
+        fullName: String?
+    ) async throws -> AppleAuthResponse {
+        guard let url = URL(string: "\(baseURL)/auth/apple") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+
+        let body = AppleAuthRequest(
+            identityToken: identityToken,
+            authorizationCode: authorizationCode,
+            email: email,
+            fullName: fullName
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                throw APIError.httpError(httpResponse.statusCode)
+            }
+
+            return try JSONDecoder().decode(AppleAuthResponse.self, from: data)
+        } catch let error as APIError {
+            throw error
+        } catch let error as DecodingError {
+            throw APIError.decodingError(error)
+        } catch {
+            throw APIError.networkError(error)
+        }
+    }
+}
+
+struct AppleAuthRequest: Encodable {
+    let identityToken: String
+    let authorizationCode: String
+    let email: String?
+    let fullName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case identityToken = "identity_token"
+        case authorizationCode = "authorization_code"
+        case email
+        case fullName = "full_name"
+    }
+}
+
+struct AppleAuthResponse: Decodable {
+    let idToken: String
+    let accessToken: String
+    let refreshToken: String?
+    let expiresIn: Int
+
+    enum CodingKeys: String, CodingKey {
+        case idToken = "id_token"
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+    }
 }

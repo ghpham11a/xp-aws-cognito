@@ -1,8 +1,10 @@
 package com.example.awscognito.shared.viewmodel
 
+import android.app.Activity
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.amplifyframework.auth.AuthProvider
 import com.amplifyframework.auth.AuthUserAttributeKey
 import com.amplifyframework.auth.options.AuthSignUpOptions
 import com.amplifyframework.core.Amplify
@@ -280,27 +282,65 @@ class AuthViewModel : ViewModel() {
         _authState.value = _authState.value.copy(error = null)
     }
 
-    fun signInWithGoogle() {
+    fun signInWithGoogle(activity: Activity) {
         viewModelScope.launch {
             _authState.value = _authState.value.copy(isLoading = true, error = null)
-            // TODO: Configure OAuth in Cognito and use Amplify.Auth.signInWithSocialWebUI
-            // Example: Amplify.Auth.signInWithSocialWebUI(AuthProvider.google(), activity, ...)
-            _authState.value = _authState.value.copy(
-                isLoading = false,
-                error = "Google Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool."
-            )
+            try {
+                val result = suspendCoroutine { continuation ->
+                    Amplify.Auth.signInWithSocialWebUI(
+                        AuthProvider.google(),
+                        activity,
+                        { continuation.resume(it) },
+                        { continuation.resumeWithException(it) }
+                    )
+                }
+
+                if (result.isSignedIn) {
+                    checkAuthStatus()
+                } else {
+                    _authState.value = _authState.value.copy(
+                        isLoading = false,
+                        error = "Google sign in incomplete"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Google sign in error", e)
+                _authState.value = _authState.value.copy(
+                    isLoading = false,
+                    error = e.message ?: "Google sign in failed"
+                )
+            }
         }
     }
 
-    fun signInWithApple() {
+    fun signInWithApple(activity: Activity) {
         viewModelScope.launch {
             _authState.value = _authState.value.copy(isLoading = true, error = null)
-            // TODO: Configure OAuth in Cognito and use Amplify.Auth.signInWithSocialWebUI
-            // Example: Amplify.Auth.signInWithSocialWebUI(AuthProvider.apple(), activity, ...)
-            _authState.value = _authState.value.copy(
-                isLoading = false,
-                error = "Apple Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool."
-            )
+            try {
+                val result = suspendCoroutine { continuation ->
+                    Amplify.Auth.signInWithSocialWebUI(
+                        AuthProvider.apple(),
+                        activity,
+                        { continuation.resume(it) },
+                        { continuation.resumeWithException(it) }
+                    )
+                }
+
+                if (result.isSignedIn) {
+                    checkAuthStatus()
+                } else {
+                    _authState.value = _authState.value.copy(
+                        isLoading = false,
+                        error = "Apple sign in incomplete"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Apple sign in error", e)
+                _authState.value = _authState.value.copy(
+                    isLoading = false,
+                    error = e.message ?: "Apple sign in failed"
+                )
+            }
         }
     }
 

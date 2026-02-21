@@ -14,7 +14,18 @@
                 },
                 "Auth": {
                     "Default": {
-                        "authenticationFlowType": "USER_SRP_AUTH"
+                        "authenticationFlowType": "USER_SRP_AUTH",
+                        "socialProviders": ["APPLE", "GOOGLE"],
+                        "usernameAttributes": ["EMAIL"],
+                        "signupAttributes": ["EMAIL"],
+                        "verificationMechanisms": ["EMAIL"],
+                        "OAuth": {
+                            "WebDomain": "us-east-1kfpe5wcvo.auth.us-east-1.amazoncognito.com",
+                            "AppClientId": "2vsdsbma91rnq48ftd6harqlgb",
+                            "SignInRedirectURI": "awscognito://callback",
+                            "SignOutRedirectURI": "awscognito://signout",
+                            "Scopes": ["openid", "email", "profile"]
+                        }
                     }
                 }
             }

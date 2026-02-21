@@ -15,7 +15,7 @@ from exceptions import (
     validation_exception_handler,
     unhandled_exception_handler,
 )
-from routers import users, messages
+from routers import users, messages, auth
 
 # Load environment variables
 load_dotenv()
@@ -80,6 +80,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
     # Include routers
+    app.include_router(auth.router, prefix="/auth", tags=["auth"])
     app.include_router(users.router, prefix="/users", tags=["users"])
     app.include_router(messages.router, prefix="/messages", tags=["messages"])
 

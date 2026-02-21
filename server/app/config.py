@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     cognito_user_pool_id: str = ""
     cognito_client_id: str = ""
 
+    # Apple Sign In
+    apple_bundle_id: str = ""  # Your iOS app bundle ID (e.g., "com.example.AWSCognito")
+
     # CORS
     cors_origins: list[str] = [
         "http://localhost:3000",

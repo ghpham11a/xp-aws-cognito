@@ -22,6 +22,7 @@ import {
   resendSignUpCode,
   signInWithRedirect,
 } from "aws-amplify/auth";
+import { Hub } from "aws-amplify/utils";
 
 export type AuthStatus = "configuring" | "authenticated" | "unauthenticated";
 
@@ -123,8 +124,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     checkAuth();
 
+    // Listen for auth events (including OAuth redirects)
+    const hubListener = Hub.listen("auth", ({ payload }) => {
+      switch (payload.event) {
+        case "signedIn":
+        case "signInWithRedirect":
+          checkAuth();
+          break;
+        case "signedOut":
+          setUser(null);
+          setAuthStatus("unauthenticated");
+          clearRefreshTimeout();
+          break;
+        case "signInWithRedirect_failure":
+          console.error("OAuth sign-in failed:", payload.data);
+          setAuthStatus("unauthenticated");
+          break;
+      }
+    });
+
     return () => {
       clearRefreshTimeout();
+      hubListener();
     };
   }, [checkAuth, clearRefreshTimeout]);
 
@@ -211,15 +232,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const handleSignInWithGoogle = async () => {
-    // TODO: Configure OAuth in Cognito and update amplify-config.ts with OAuth settings
-    // Then uncomment: await signInWithRedirect({ provider: "Google" });
-    throw new Error("Google Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool and update amplify-config.ts.");
+    await signInWithRedirect({ provider: "Google" });
   };
 
   const handleSignInWithApple = async () => {
-    // TODO: Configure OAuth in Cognito and update amplify-config.ts with OAuth settings
-    // Then uncomment: await signInWithRedirect({ provider: "Apple" });
-    throw new Error("Apple Sign In not yet configured with Cognito. Configure OAuth in the Cognito User Pool and update amplify-config.ts.");
+    await signInWithRedirect({ provider: "Apple" });
   };
 
   return (

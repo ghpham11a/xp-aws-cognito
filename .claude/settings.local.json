@@ -11,7 +11,8 @@
       "Bash(../env/Scripts/python -c \"from main import app; print\\(''Server imports OK''\\)\")",
       "Bash(./gradlew assembleDebug:*)",
       "Bash(xcodebuild:*)",
-      "Bash(aws cognito-idp describe-identity-provider:*)"
+      "Bash(aws cognito-idp describe-identity-provider:*)",
+      "Bash(ls -la \"C:\\\\Users\\\\antho\\\\Dev\\\\xp-aws-cognito\\\\ios-client\\\\AWSCognito\\\\AWSCognito\\\\Resources\"\" 2>/dev/null || echo \"Directory not found, trying alternative path \")"
     ]
   }
 }

@@ -9,11 +9,12 @@ import SwiftUI
 import Amplify
 import AWSPluginsCore
 import AWSCognitoAuthPlugin
+import AuthenticationServices
 
 @Observable
 @MainActor
 final class AuthManager {
-    
+
     var isAuthenticated = false
     var isLoading = false
     var userId: String?
@@ -34,7 +35,14 @@ final class AuthManager {
     // Password change state
     var passwordChangeSuccess = false
     var passwordChangeError: String?
-    
+
+    // Native Apple Sign-In tokens (stored when using native flow)
+    private var nativeIdToken: String?
+    private var nativeAccessToken: String?
+
+    private let appleSignInService = AppleSignInService()
+    private let apiService = APIService()
+
     init() {
         Task {
             await checkAuthStatus()
@@ -42,12 +50,16 @@ final class AuthManager {
     }
     
     func checkAuthStatus() async {
+        // Check native token first (for native Apple Sign-In)
+        if nativeIdToken != nil {
+            isAuthenticated = true
+            return
+        }
+
+        // Check Amplify session (for email/password and web OAuth)
         do {
             let session = try await Amplify.Auth.fetchAuthSession()
             isAuthenticated = session.isSignedIn
-            if session.isSignedIn {
-                
-            }
         } catch {
             print("err: \(error)")
         }
@@ -81,6 +93,12 @@ final class AuthManager {
     }
     
     func getIdToken() async throws -> String? {
+        // Return native token if available (from native Apple Sign-In)
+        if let nativeToken = nativeIdToken {
+            return nativeToken
+        }
+
+        // Fall back to Amplify session (for email/password and web OAuth)
         let session = try await Amplify.Auth.fetchAuthSession()
         if let cognitoTokenProvider = session as? AuthCognitoTokensProvider {
             let tokens = try cognitoTokenProvider.getCognitoTokens().get()
@@ -198,7 +216,14 @@ final class AuthManager {
     func signOut() async {
         isLoading = true
 
+        // Sign out from Amplify (for email/password and web OAuth users)
         _ = await Amplify.Auth.signOut(options: .init(globalSignOut: false))
+
+        // Clear native tokens (for native Apple Sign-In users)
+        nativeIdToken = nil
+        nativeAccessToken = nil
+
+        // Clear all state
         isAuthenticated = false
         userId = nil
         email = nil
@@ -234,6 +259,59 @@ final class AuthManager {
     // MARK: - Social Sign In
 
     func signInWithApple() async {
+        isLoading = true
+        authError = nil
+
+        do {
+            // Step 1: Native Apple Sign-In (shows system UI)
+            let appleResult = try await appleSignInService.signIn()
+
+            // Build full name string if available
+            var fullName: String? = nil
+            if let nameComponents = appleResult.fullName {
+                let formatter = PersonNameComponentsFormatter()
+                let name = formatter.string(from: nameComponents)
+                if !name.isEmpty {
+                    fullName = name
+                }
+            }
+
+            // Step 2: Exchange Apple token for Cognito tokens via backend
+            let authResponse = try await apiService.exchangeAppleToken(
+                identityToken: appleResult.identityToken,
+                authorizationCode: appleResult.authorizationCode,
+                email: appleResult.email,
+                fullName: fullName
+            )
+
+            // Step 3: Store tokens and update state
+            nativeIdToken = authResponse.idToken
+            nativeAccessToken = authResponse.accessToken
+            isAuthenticated = true
+            showLoginView = false
+
+            // Extract user info from token (or fetch from /users/me)
+            if let email = appleResult.email {
+                self.email = email
+            }
+
+        } catch let error as AppleSignInError {
+            if case .cancelled = error {
+                // User cancelled - don't show error
+            } else {
+                authError = error.errorDescription
+            }
+        } catch let error as APIError {
+            authError = error.errorDescription
+        } catch {
+            authError = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    /// Legacy web-based Apple Sign-In (kept for reference)
+    func signInWithAppleWeb() async {
         isLoading = true
         authError = nil
 

@@ -535,3 +535,154 @@ Before testing, verify all three systems are aligned:
 - [ ] `amplifyconfiguration.json` in Resources with OAuth nested inside `Auth > Default`
 - [ ] `Info.plist` with `awscognito` URL scheme registered
 - [ ] `INFOPLIST_FILE` build setting points to `Info.plist`
+
+---
+
+## Native Apple Sign-In (Optional Upgrade)
+
+The default implementation uses Cognito's Hosted UI for Apple sign-in, which opens a web view. For a more native experience (the system "Sign in with Apple" sheet), follow these additional steps.
+
+### Why Native?
+
+| Approach | UI | Pros | Cons |
+|----------|-----|------|------|
+| **Hosted UI** (default) | Web view | Simple setup, Cognito handles everything | Less native feel, browser-based |
+| **Native** | System sheet | Native "Choose account" UI, better UX | Requires backend endpoint, more setup |
+
+### Native Apple Sign-In Architecture
+
+```
+┌──────────────┐     ┌─────────────────────┐     ┌─────────────┐
+│  iOS App     │     │   Your Backend      │     │   Cognito   │
+│              │     │   POST /auth/apple  │     │  User Pool  │
+└──────┬───────┘     └──────────┬──────────┘     └──────┬──────┘
+       │                        │                       │
+       │ 1. Native Apple UI     │                       │
+       │    (system sheet)      │                       │
+       │                        │                       │
+       │ 2. Send identityToken  │                       │
+       ├───────────────────────>│                       │
+       │                        │ 3. Verify with Apple  │
+       │                        │    JWKS               │
+       │                        │                       │
+       │                        │ 4. AdminCreateUser    │
+       │                        │    or AdminGetUser    │
+       │                        ├──────────────────────>│
+       │                        │                       │
+       │                        │ 5. AdminInitiateAuth  │
+       │                        │<──────────────────────│
+       │ 6. Return Cognito      │                       │
+       │    tokens              │                       │
+       │<───────────────────────┤                       │
+```
+
+### Step 1: Xcode - Add Sign in with Apple Capability
+
+1. Select your target in Xcode
+2. Go to **Signing & Capabilities**
+3. Click **+ Capability**
+4. Add **Sign in with Apple**
+
+This creates an entitlements file with the `com.apple.developer.applesignin` entitlement.
+
+### Step 2: Apple Developer Portal
+
+Ensure your App ID has "Sign in with Apple" enabled:
+1. Go to https://developer.apple.com/account/resources/identifiers
+2. Select your App ID
+3. Enable **Sign in with Apple** (if not already enabled)
+
+### Step 3: AWS Cognito - Add Custom Attribute
+
+Add a custom attribute to store Apple's user identifier:
+
+1. Go to **Cognito → User Pool → Sign-up experience → Custom attributes**
+2. Click **Add custom attribute**
+3. Add: `apple_sub` (String, mutable)
+
+### Step 4: AWS Cognito - Enable Admin Auth Flow
+
+The backend uses `ADMIN_USER_PASSWORD_AUTH` to generate tokens:
+
+1. Go to **Cognito → App integration → App clients**
+2. Select your app client → **Edit**
+3. Under **Authentication flows**, enable:
+   - `ALLOW_ADMIN_USER_PASSWORD_AUTH`
+4. Save changes
+
+### Step 5: Backend IAM Permissions
+
+The backend needs Cognito Admin API permissions. Add this policy to your backend's IAM role:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminSetUserPassword",
+        "cognito-idp:AdminInitiateAuth"
+      ],
+      "Resource": "arn:aws:cognito-idp:us-east-1:YOUR_ACCOUNT_ID:userpool/us-east-1_XXXXXXXXX"
+    }
+  ]
+}
+```
+
+Replace `YOUR_ACCOUNT_ID` and `us-east-1_XXXXXXXXX` with your actual values.
+
+### Step 6: Backend Environment
+
+Add the Apple bundle ID to your backend's `.env`:
+
+```bash
+APPLE_BUNDLE_ID=com.ap.AWSCognito
+```
+
+This is used to verify the `aud` (audience) claim in Apple's identity token.
+
+### Step 7: Install Backend Dependencies
+
+```bash
+cd server
+pip install boto3
+```
+
+Or if using requirements.txt, it's already added.
+
+### Native Sign-In Checklist
+
+- [ ] Xcode: "Sign in with Apple" capability added
+- [ ] Apple Developer: App ID has Sign in with Apple enabled
+- [ ] Cognito: `custom:apple_sub` attribute created
+- [ ] Cognito: App client has `ALLOW_ADMIN_USER_PASSWORD_AUTH` enabled
+- [ ] Backend: IAM role has Cognito Admin API permissions
+- [ ] Backend: `APPLE_BUNDLE_ID` set in `.env`
+- [ ] Backend: `boto3` installed
+
+### How Native Sign-In Works
+
+1. **iOS**: `AppleSignInService` uses `ASAuthorizationController` to show the native Apple sign-in sheet
+2. **iOS**: User authenticates with Face ID/Touch ID, Apple returns an identity token (JWT)
+3. **iOS**: App sends the identity token to `POST /auth/apple` on your backend
+4. **Backend**: Verifies the token using Apple's public JWKS
+5. **Backend**: Creates or retrieves the Cognito user via Admin API
+6. **Backend**: Generates Cognito tokens via `AdminInitiateAuth`
+7. **iOS**: Receives Cognito tokens, stores them, marks user as authenticated
+
+### Switching Between Native and Web-Based
+
+The `AuthManager` has both implementations:
+
+```swift
+// Native (recommended)
+await authManager.signInWithApple()
+
+// Web-based (legacy, still available)
+await authManager.signInWithAppleWeb()
+```
+
+The `signInWithApple()` method now uses native sign-in by default.
