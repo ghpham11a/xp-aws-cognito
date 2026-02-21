@@ -57,22 +57,102 @@ def get_cognito_jwks() -> dict:
         )
 
 
+@lru_cache(maxsize=1)
+def get_google_jwks() -> dict:
+    """Fetch and cache Google JWKS for token verification."""
+    try:
+        response = httpx.get(
+            "https://www.googleapis.com/oauth2/v3/certs", timeout=10.0
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error(f"Failed to fetch Google JWKS: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        )
+
+
+def _find_key_in_jwks(jwks: dict, kid: str):
+    """Find a matching key in a JWKS by key ID."""
+    for k in jwks.get("keys", []):
+        if k.get("kid") == kid:
+            return jwk.construct(k)
+    return None
+
+
+def _verify_cognito_token(token: str, kid: str) -> dict:
+    """Verify a Cognito JWT token."""
+    settings = get_settings()
+
+    key = _find_key_in_jwks(get_cognito_jwks(), kid)
+    if not key:
+        # Clear cache and retry once (key rotation case)
+        get_cognito_jwks.cache_clear()
+        key = _find_key_in_jwks(get_cognito_jwks(), kid)
+
+    if not key:
+        logger.warning(f"Cognito token key not found: {kid}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token key",
+        )
+
+    issuer = (
+        f"https://cognito-idp.{settings.aws_region}.amazonaws.com/"
+        f"{settings.cognito_user_pool_id}"
+    )
+    return jwt.decode(
+        token,
+        key.to_pem().decode("utf-8"),
+        algorithms=["RS256"],
+        audience=settings.cognito_client_id,
+        issuer=issuer,
+        options={"verify_at_hash": False},
+    )
+
+
+def _verify_google_token(token: str, kid: str) -> dict:
+    """Verify a Google JWT token."""
+    settings = get_settings()
+
+    if not settings.google_client_id:
+        logger.error("Google client ID not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google authentication not configured",
+        )
+
+    key = _find_key_in_jwks(get_google_jwks(), kid)
+    if not key:
+        get_google_jwks.cache_clear()
+        key = _find_key_in_jwks(get_google_jwks(), kid)
+
+    if not key:
+        logger.warning(f"Google token key not found: {kid}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token key",
+        )
+
+    return jwt.decode(
+        token,
+        key.to_pem().decode("utf-8"),
+        algorithms=["RS256"],
+        audience=settings.google_client_id,
+        issuer="https://accounts.google.com",
+    )
+
+
 def verify_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
-    """Verify JWT token from Cognito and return claims."""
+    """Verify JWT token from Cognito or Google and return claims."""
     settings = get_settings()
     token = credentials.credentials
 
-    if not settings.cognito_user_pool_id or not settings.cognito_client_id:
-        logger.error("Cognito not configured")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication not configured",
-        )
-
     try:
-        # Get the key ID from token header
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
 
@@ -82,50 +162,22 @@ def verify_token(
                 detail="Invalid token format",
             )
 
-        # Find matching key in JWKS
-        jwks = get_cognito_jwks()
-        key = None
-        for k in jwks.get("keys", []):
-            if k.get("kid") == kid:
-                key = jwk.construct(k)
-                break
+        # Peek at the issuer to determine which provider to validate against
+        unverified_claims = jwt.get_unverified_claims(token)
+        issuer = unverified_claims.get("iss", "")
 
-        if not key:
-            # Clear cache and retry once (key rotation case)
-            get_cognito_jwks.cache_clear()
-            jwks = get_cognito_jwks()
-            for k in jwks.get("keys", []):
-                if k.get("kid") == kid:
-                    key = jwk.construct(k)
-                    break
+        if issuer == "https://accounts.google.com":
+            return _verify_google_token(token, kid)
 
-        if not key:
-            logger.warning(f"Token key not found: {kid}")
+        # Default to Cognito validation
+        if not settings.cognito_user_pool_id or not settings.cognito_client_id:
+            logger.error("Cognito not configured")
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token key",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication not configured",
             )
 
-        # Verify and decode token
-        issuer = (
-            f"https://cognito-idp.{settings.aws_region}.amazonaws.com/"
-            f"{settings.cognito_user_pool_id}"
-        )
-        claims = jwt.decode(
-            token,
-            key.to_pem().decode("utf-8"),
-            algorithms=["RS256"],
-            audience=settings.cognito_client_id,
-            issuer=issuer,
-            options={
-                # Disable at_hash verification - this claim binds ID tokens to access tokens
-                # but we only validate the ID token. Federated providers (Google/Apple) include
-                # this claim, and without passing the access_token, jose logs a warning.
-                "verify_at_hash": False,
-            },
-        )
-
-        return claims
+        return _verify_cognito_token(token, kid)
 
     except JWTError as e:
         logger.warning(f"JWT validation failed: {e}")

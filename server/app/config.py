@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     cognito_user_pool_id: str = ""
     cognito_client_id: str = ""
 
+    # Google Sign-In
+    google_client_id: str = ""
+
     # CORS
     cors_origins: list[str] = [
         "http://localhost:3000",
