@@ -21,7 +21,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:6969";
 
 export default function DashboardContent() {
   const { user } = useAuth();
-  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [privateMessage, setPrivateMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,21 +44,6 @@ export default function DashboardContent() {
         if (!userResponse.ok && userResponse.status !== 404) {
           console.warn("Failed to sync user:", userResponse.status);
         }
-
-        // Fetch feed items
-        const response = await fetch(`${API_URL}/feed`, { headers });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            setError("Your session has expired. Please sign in again.");
-          } else {
-            setError(`Failed to fetch feed: ${response.status}`);
-          }
-          return;
-        }
-
-        const data = await response.json();
-        setFeedItems(data);
 
         // Fetch private message
         const messageResponse = await fetch(`${API_URL}/messages/private`, {
@@ -94,23 +78,6 @@ export default function DashboardContent() {
       <div className="server-message-card">
         <h3>Server Message</h3>
         {privateMessage && <p className="message">{privateMessage}</p>}
-      </div>
-
-      <div className="feed-section">
-        <h3>Your Feed</h3>
-        {error && <p className="feed-error">{error}</p>}
-        {!error && feedItems.length === 0 && (
-          <p className="feed-empty">No items in your feed.</p>
-        )}
-        <div className="feed-list">
-          {feedItems.map((item) => (
-            <div key={item.id} className={`feed-item feed-item-${item.type}`}>
-              <span className="feed-item-type">{item.type}</span>
-              <h4>{item.title}</h4>
-              <p>{item.content}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="dashboard-stats">
