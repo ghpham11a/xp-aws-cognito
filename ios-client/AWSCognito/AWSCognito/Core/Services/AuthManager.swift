@@ -14,6 +14,7 @@ import GoogleSignIn
 
 enum AuthProvider {
     case cognito
+    case apple
     case google
 }
 
@@ -42,17 +43,14 @@ final class AuthManager {
     var passwordChangeSuccess = false
     var passwordChangeError: String?
 
-    // Native Apple Sign-In tokens (stored when using native flow)
+    // Native social sign-in tokens (stored when using native flow)
+    // These are Cognito tokens returned from backend after token exchange
     private var nativeIdToken: String?
     private var nativeAccessToken: String?
+    private var authProvider: AuthProvider = .cognito
 
     private let appleSignInService = AppleSignInService()
     private let apiService = APIService()
-
-    // Auth provider tracking
-    private var authProvider: AuthProvider = .cognito
-    private var googleIdToken: String?
-
 
     init() {
         Task {
@@ -61,25 +59,10 @@ final class AuthManager {
     }
 
     func checkAuthStatus() async {
-        // Check native token first (for native Apple Sign-In)
+        // Check native token first (for native Apple/Google Sign-In)
         if nativeIdToken != nil {
             isAuthenticated = true
             return
-        }
-
-        // Try restoring Google session
-        do {
-            let googleUser = try await GIDSignIn.sharedInstance.restorePreviousSignIn()
-            if let idToken = googleUser.idToken?.tokenString {
-                googleIdToken = idToken
-                authProvider = .google
-                isAuthenticated = true
-                email = googleUser.profile?.email
-                userId = googleUser.userID
-                return
-            }
-        } catch {
-            // No previous Google session, try Cognito
         }
 
         // Check Amplify session (for email/password and web OAuth)
@@ -122,14 +105,9 @@ final class AuthManager {
     }
 
     func getIdToken() async throws -> String? {
-        // Return native token if available (from native Apple Sign-In)
+        // Return native token if available (from native Apple/Google Sign-In)
         if let nativeToken = nativeIdToken {
             return nativeToken
-        }
-
-        // Return Google token if signed in with Google
-        if authProvider == .google {
-            return googleIdToken
         }
 
         // Fall back to Amplify session (for email/password and web OAuth)
@@ -251,18 +229,22 @@ final class AuthManager {
     func signOut() async {
         isLoading = true
 
+        // Sign out from Google SDK if needed
         if authProvider == .google {
             GIDSignIn.sharedInstance.signOut()
-            googleIdToken = nil
-        } else {
+        }
+
+        // Sign out from Amplify (for email/password and web OAuth users)
+        if authProvider == .cognito {
             _ = await Amplify.Auth.signOut(options: .init(globalSignOut: false))
         }
 
-        // Clear native tokens (for native Apple Sign-In users)
+        // Clear native tokens (for native Apple/Google Sign-In users)
         nativeIdToken = nil
         nativeAccessToken = nil
-
         authProvider = .cognito
+
+        // Clear all state
         isAuthenticated = false
         userId = nil
         email = nil
@@ -326,6 +308,7 @@ final class AuthManager {
             // Step 3: Store tokens and update state
             nativeIdToken = authResponse.idToken
             nativeAccessToken = authResponse.accessToken
+            authProvider = .apple
             isAuthenticated = true
             showLoginView = false
 
@@ -382,20 +365,36 @@ final class AuthManager {
                 return
             }
 
+            // Step 1: Native Google Sign-In (shows Google UI)
             let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingVC)
 
-            guard let idToken = result.user.idToken?.tokenString else {
+            guard let googleIdToken = result.user.idToken?.tokenString else {
                 authError = "Google Sign-In did not return an ID token"
                 isLoading = false
                 return
             }
 
-            googleIdToken = idToken
+            let googleEmail = result.user.profile?.email
+            let googleName = result.user.profile?.name
+
+            // Step 2: Exchange Google token for Cognito tokens via backend
+            let authResponse = try await apiService.exchangeGoogleToken(
+                idToken: googleIdToken,
+                email: googleEmail,
+                fullName: googleName
+            )
+
+            // Step 3: Store Cognito tokens and update state
+            nativeIdToken = authResponse.idToken
+            nativeAccessToken = authResponse.accessToken
             authProvider = .google
             isAuthenticated = true
             showLoginView = false
-            email = result.user.profile?.email
+            email = googleEmail
             userId = result.user.userID
+
+        } catch let error as APIError {
+            authError = error.errorDescription
         } catch {
             authError = error.localizedDescription
         }
