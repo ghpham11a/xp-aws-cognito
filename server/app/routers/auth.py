@@ -32,6 +32,12 @@ class AppleAuthRequest(BaseModel):
     full_name: str | None = None
 
 
+class GoogleAuthRequest(BaseModel):
+    id_token: str
+    email: str | None = None
+    full_name: str | None = None
+
+
 class AuthTokenResponse(BaseModel):
     id_token: str
     access_token: str
@@ -123,6 +129,107 @@ def verify_apple_token(identity_token: str) -> dict:
         )
 
 
+@lru_cache(maxsize=1)
+def get_google_jwks() -> dict:
+    """Fetch and cache Google's JWKS for token verification."""
+    try:
+        response = httpx.get(
+            "https://www.googleapis.com/oauth2/v3/certs",
+            timeout=10.0
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.RequestError as e:
+        logger.error(f"Failed to fetch Google JWKS: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google authentication service unavailable",
+        )
+
+
+def verify_google_token(id_token_str: str) -> dict:
+    """
+    Verify Google ID token and return claims.
+
+    Google ID tokens are JWTs signed with Google's private key.
+    We verify using Google's public JWKS.
+    """
+    settings = get_settings()
+
+    if not settings.google_client_id:
+        logger.error("Google client ID not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google client ID not configured",
+        )
+
+    try:
+        # Get the key ID from token header
+        unverified_header = jwt.get_unverified_header(id_token_str)
+        kid = unverified_header.get("kid")
+
+        if not kid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google token format",
+            )
+
+        # Find matching key in Google's JWKS
+        jwks = get_google_jwks()
+        key = None
+        for k in jwks.get("keys", []):
+            if k.get("kid") == kid:
+                key = jwk.construct(k)
+                break
+
+        if not key:
+            # Clear cache and retry (key rotation case)
+            get_google_jwks.cache_clear()
+            jwks = get_google_jwks()
+            for k in jwks.get("keys", []):
+                if k.get("kid") == kid:
+                    key = jwk.construct(k)
+                    break
+
+        if not key:
+            logger.warning(f"Google token key not found: {kid}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google token key",
+            )
+
+        # Verify and decode token
+        # Google tokens have issuer "https://accounts.google.com" or "accounts.google.com"
+        # Audience should be your app's client ID
+        claims = jwt.decode(
+            id_token_str,
+            key.to_pem().decode("utf-8"),
+            algorithms=["RS256"],
+            audience=settings.google_client_id,
+            options={
+                "verify_at_hash": False,
+                "verify_iss": False,  # We'll verify manually due to multiple issuers
+            },
+        )
+
+        # Manually verify issuer (Google uses two different issuer values)
+        issuer = claims.get("iss")
+        if issuer not in ("https://accounts.google.com", "accounts.google.com"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google token issuer",
+            )
+
+        return claims
+
+    except JWTError as e:
+        logger.warning(f"Google JWT validation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google token",
+        )
+
+
 def get_cognito_client():
     """Get Cognito Identity Provider client."""
     settings = get_settings()
@@ -190,6 +297,84 @@ def admin_get_or_create_user(
 
         # Set a random password and confirm the user
         # (Apple users authenticate via token, not password)
+        import secrets
+        temp_password = secrets.token_urlsafe(32)
+
+        cognito_client.admin_set_user_password(
+            UserPoolId=user_pool_id,
+            Username=username,
+            Password=temp_password,
+            Permanent=True,
+        )
+
+        return username
+
+    except ClientError as e:
+        logger.error(f"Failed to create user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user account",
+        )
+
+
+def admin_get_or_create_google_user(
+    cognito_client,
+    user_pool_id: str,
+    google_sub: str,
+    email: str | None,
+    full_name: str | None,
+) -> str:
+    """
+    Get existing user or create new one linked to Google identity.
+
+    Returns the Cognito username.
+    """
+    # Username format for Google users
+    username = f"google_{google_sub}"
+
+    try:
+        # Try to get existing user
+        cognito_client.admin_get_user(
+            UserPoolId=user_pool_id,
+            Username=username,
+        )
+        logger.info(f"Found existing Google user: {username}")
+        return username
+
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "UserNotFoundException":
+            logger.error(f"Error looking up user: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to lookup user",
+            )
+
+    # User doesn't exist - create new one
+    logger.info(f"Creating new Google user: {username}")
+
+    user_attributes = [
+        {"Name": "custom:google_sub", "Value": google_sub},
+    ]
+
+    if email:
+        user_attributes.extend([
+            {"Name": "email", "Value": email},
+            {"Name": "email_verified", "Value": "true"},
+        ])
+
+    if full_name:
+        user_attributes.append({"Name": "name", "Value": full_name})
+
+    try:
+        cognito_client.admin_create_user(
+            UserPoolId=user_pool_id,
+            Username=username,
+            UserAttributes=user_attributes,
+            MessageAction="SUPPRESS",  # Don't send welcome email
+        )
+
+        # Set a random password and confirm the user
+        # (Google users authenticate via token, not password)
         import secrets
         temp_password = secrets.token_urlsafe(32)
 
@@ -327,5 +512,59 @@ async def apple_sign_in(request: AppleAuthRequest):
     )
 
     logger.info(f"Apple sign-in successful for user: {username}")
+
+    return tokens
+
+
+@router.post("/google", response_model=AuthTokenResponse)
+async def google_sign_in(request: GoogleAuthRequest):
+    """
+    Exchange Google ID token for Cognito tokens.
+
+    Flow:
+    1. Verify Google ID token using Google's JWKS
+    2. Extract user info (sub, email) from verified claims
+    3. Create or get existing Cognito user linked to Google sub
+    4. Generate Cognito tokens for the user
+    5. Return tokens for API authentication
+    """
+    settings = get_settings()
+
+    # Step 1: Verify Google token
+    claims = verify_google_token(request.id_token)
+
+    google_sub = claims.get("sub")
+    if not google_sub:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google token missing subject claim",
+        )
+
+    # Email from token or request
+    email = request.email or claims.get("email")
+
+    # Full name from request or token
+    full_name = request.full_name or claims.get("name")
+
+    # Step 2: Get or create Cognito user
+    cognito_client = get_cognito_client()
+
+    username = admin_get_or_create_google_user(
+        cognito_client=cognito_client,
+        user_pool_id=settings.cognito_user_pool_id,
+        google_sub=google_sub,
+        email=email,
+        full_name=full_name,
+    )
+
+    # Step 3: Generate Cognito tokens
+    tokens = admin_initiate_auth(
+        cognito_client=cognito_client,
+        user_pool_id=settings.cognito_user_pool_id,
+        client_id=settings.cognito_client_id,
+        username=username,
+    )
+
+    logger.info(f"Google sign-in successful for user: {username}")
 
     return tokens

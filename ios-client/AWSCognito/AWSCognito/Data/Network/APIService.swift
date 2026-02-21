@@ -164,6 +164,50 @@ class APIService {
             throw APIError.networkError(error)
         }
     }
+
+    // MARK: - Google Sign In
+
+    func exchangeGoogleToken(
+        idToken: String,
+        email: String?,
+        fullName: String?
+    ) async throws -> AuthTokenResponse {
+        guard let url = URL(string: "\(baseURL)/auth/google") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+
+        let body = GoogleAuthRequest(
+            idToken: idToken,
+            email: email,
+            fullName: fullName
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                throw APIError.httpError(httpResponse.statusCode)
+            }
+
+            return try JSONDecoder().decode(AuthTokenResponse.self, from: data)
+        } catch let error as APIError {
+            throw error
+        } catch let error as DecodingError {
+            throw APIError.decodingError(error)
+        } catch {
+            throw APIError.networkError(error)
+        }
+    }
 }
 
 struct AppleAuthRequest: Encodable {
@@ -180,7 +224,19 @@ struct AppleAuthRequest: Encodable {
     }
 }
 
-struct AppleAuthResponse: Decodable {
+struct GoogleAuthRequest: Encodable {
+    let idToken: String
+    let email: String?
+    let fullName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case idToken = "id_token"
+        case email
+        case fullName = "full_name"
+    }
+}
+
+struct AuthTokenResponse: Decodable {
     let idToken: String
     let accessToken: String
     let refreshToken: String?
@@ -193,3 +249,6 @@ struct AppleAuthResponse: Decodable {
         case expiresIn = "expires_in"
     }
 }
+
+// Keep for backwards compatibility
+typealias AppleAuthResponse = AuthTokenResponse
