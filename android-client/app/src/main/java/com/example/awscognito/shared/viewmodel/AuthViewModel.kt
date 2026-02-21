@@ -1,16 +1,25 @@
 package com.example.awscognito.shared.viewmodel
 
 import android.app.Activity
+import android.content.Context
 import android.util.Log
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.GetCredentialResponse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.amplifyframework.auth.AuthProvider
 import com.amplifyframework.auth.AuthUserAttributeKey
 import com.amplifyframework.auth.options.AuthSignUpOptions
 import com.amplifyframework.core.Amplify
+import com.example.awscognito.data.model.GoogleAuthRequest
 import com.example.awscognito.data.networking.ApiClient
 import com.example.awscognito.data.model.FeedItem
 import com.example.awscognito.data.model.User
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +27,12 @@ import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+
+enum class AuthProviderType {
+    COGNITO,
+    GOOGLE,
+    APPLE
+}
 
 data class AuthState(
     val isAuthenticated: Boolean = false,
@@ -44,6 +59,12 @@ class AuthViewModel : ViewModel() {
     private val _dashboardState = MutableStateFlow(DashboardState())
     val dashboardState: StateFlow<DashboardState> = _dashboardState.asStateFlow()
 
+    // Native social sign-in tokens (stored when using native Google flow)
+    // These are Cognito tokens returned from backend after token exchange
+    private var nativeIdToken: String? = null
+    private var nativeAccessToken: String? = null
+    private var authProvider: AuthProviderType = AuthProviderType.COGNITO
+
     init {
         checkAuthStatus()
     }
@@ -51,6 +72,17 @@ class AuthViewModel : ViewModel() {
     fun checkAuthStatus() {
         viewModelScope.launch {
             _authState.value = _authState.value.copy(isLoading = true)
+
+            // Check native token first (for native Google Sign-In)
+            // Don't call Amplify methods for native auth - we manage our own tokens
+            if (nativeIdToken != null && authProvider == AuthProviderType.GOOGLE) {
+                _authState.value = _authState.value.copy(
+                    isAuthenticated = true,
+                    isLoading = false
+                )
+                return@launch
+            }
+
             try {
                 val session = suspendCoroutine { continuation ->
                     Amplify.Auth.fetchAuthSession(
@@ -60,22 +92,31 @@ class AuthViewModel : ViewModel() {
                 }
 
                 if (session.isSignedIn) {
-                    val attributes = suspendCoroutine { continuation ->
-                        Amplify.Auth.fetchUserAttributes(
-                            { continuation.resume(it) },
-                            { continuation.resumeWithException(it) }
+                    try {
+                        val attributes = suspendCoroutine { continuation ->
+                            Amplify.Auth.fetchUserAttributes(
+                                { continuation.resume(it) },
+                                { continuation.resumeWithException(it) }
+                            )
+                        }
+
+                        val email = attributes.find { it.key == AuthUserAttributeKey.email() }?.value
+                        val userId = attributes.find { it.key.keyString == "sub" }?.value
+
+                        _authState.value = AuthState(
+                            isAuthenticated = true,
+                            isLoading = false,
+                            userId = userId,
+                            email = email
+                        )
+                    } catch (e: Exception) {
+                        // Attributes fetch failed but session is valid
+                        Log.w(TAG, "Could not fetch user attributes", e)
+                        _authState.value = AuthState(
+                            isAuthenticated = true,
+                            isLoading = false
                         )
                     }
-
-                    val email = attributes.find { it.key == AuthUserAttributeKey.email() }?.value
-                    val userId = attributes.find { it.key.keyString == "sub" }?.value
-
-                    _authState.value = AuthState(
-                        isAuthenticated = true,
-                        isLoading = false,
-                        userId = userId,
-                        email = email
-                    )
                 } else {
                     _authState.value = AuthState(isAuthenticated = false, isLoading = false)
                 }
@@ -169,6 +210,7 @@ class AuthViewModel : ViewModel() {
                 }
 
                 if (result.isSignedIn) {
+                    authProvider = AuthProviderType.COGNITO
                     checkAuthStatus()
                 } else {
                     _authState.value = _authState.value.copy(
@@ -190,9 +232,18 @@ class AuthViewModel : ViewModel() {
         viewModelScope.launch {
             _authState.value = _authState.value.copy(isLoading = true)
             try {
-                suspendCoroutine { continuation ->
-                    Amplify.Auth.signOut { continuation.resume(it) }
+                // Sign out from Amplify (for email/password, web OAuth, and Apple hosted UI users)
+                if (authProvider == AuthProviderType.COGNITO || authProvider == AuthProviderType.APPLE) {
+                    suspendCoroutine { continuation ->
+                        Amplify.Auth.signOut { continuation.resume(it) }
+                    }
                 }
+
+                // Clear native tokens (for native Google Sign-In users)
+                nativeIdToken = null
+                nativeAccessToken = null
+                authProvider = AuthProviderType.COGNITO
+
                 _authState.value = AuthState(isAuthenticated = false, isLoading = false)
                 _dashboardState.value = DashboardState()
             } catch (e: Exception) {
@@ -241,12 +292,12 @@ class AuthViewModel : ViewModel() {
 
                 val bearerToken = "Bearer $token"
                 val user = ApiClient.apiService.getCurrentUser(bearerToken)
-                val feedItems = ApiClient.apiService.getFeed(bearerToken)
                 val privateMessage = ApiClient.apiService.getPrivateMessage(bearerToken)
 
+                // Note: /feed endpoint not implemented on server
                 _dashboardState.value = DashboardState(
                     user = user,
-                    feedItems = feedItems,
+                    feedItems = emptyList(),
                     privateMessage = privateMessage.message,
                     isLoading = false
                 )
@@ -261,6 +312,12 @@ class AuthViewModel : ViewModel() {
     }
 
     private suspend fun getIdToken(): String? {
+        // Return native token if available (from native Google Sign-In)
+        if (nativeIdToken != null) {
+            return nativeIdToken
+        }
+
+        // Fall back to Amplify session (for email/password and web OAuth)
         return try {
             suspendCoroutine { continuation ->
                 Amplify.Auth.fetchAuthSession(
@@ -282,27 +339,38 @@ class AuthViewModel : ViewModel() {
         _authState.value = _authState.value.copy(error = null)
     }
 
-    fun signInWithGoogle(activity: Activity) {
+    // MARK: - Social Sign In
+
+    /**
+     * Native Google Sign-In using Credential Manager API.
+     * Exchanges Google ID token for Cognito tokens via backend.
+     */
+    fun signInWithGoogle(context: Context, webClientId: String) {
         viewModelScope.launch {
             _authState.value = _authState.value.copy(isLoading = true, error = null)
             try {
-                val result = suspendCoroutine { continuation ->
-                    Amplify.Auth.signInWithSocialWebUI(
-                        AuthProvider.google(),
-                        activity,
-                        { continuation.resume(it) },
-                        { continuation.resumeWithException(it) }
-                    )
-                }
+                val credentialManager = CredentialManager.create(context)
 
-                if (result.isSignedIn) {
-                    checkAuthStatus()
-                } else {
-                    _authState.value = _authState.value.copy(
-                        isLoading = false,
-                        error = "Google sign in incomplete"
-                    )
-                }
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setFilterByAuthorizedAccounts(false)
+                    .setServerClientId(webClientId)
+                    .build()
+
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(googleIdOption)
+                    .build()
+
+                val result = credentialManager.getCredential(
+                    request = request,
+                    context = context
+                )
+
+                handleGoogleSignInResult(result)
+
+            } catch (e: androidx.credentials.exceptions.GetCredentialCancellationException) {
+                // User cancelled - don't show error
+                Log.d(TAG, "Google sign in cancelled by user")
+                _authState.value = _authState.value.copy(isLoading = false)
             } catch (e: Exception) {
                 Log.e(TAG, "Google sign in error", e)
                 _authState.value = _authState.value.copy(
@@ -313,6 +381,68 @@ class AuthViewModel : ViewModel() {
         }
     }
 
+    private suspend fun handleGoogleSignInResult(result: GetCredentialResponse) {
+        val credential = result.credential
+
+        when (credential) {
+            is CustomCredential -> {
+                if (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    try {
+                        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                        val googleIdToken = googleIdTokenCredential.idToken
+                        val email = googleIdTokenCredential.id
+                        val displayName = googleIdTokenCredential.displayName
+
+                        // Exchange Google token for Cognito tokens via backend
+                        val authResponse = ApiClient.apiService.exchangeGoogleToken(
+                            GoogleAuthRequest(
+                                idToken = googleIdToken,
+                                email = email,
+                                fullName = displayName
+                            )
+                        )
+
+                        // Store Cognito tokens and update state
+                        nativeIdToken = authResponse.idToken
+                        nativeAccessToken = authResponse.accessToken
+                        authProvider = AuthProviderType.GOOGLE
+
+                        _authState.value = AuthState(
+                            isAuthenticated = true,
+                            isLoading = false,
+                            email = email,
+                            userId = null // Will be fetched from /users/me if needed
+                        )
+
+                    } catch (e: GoogleIdTokenParsingException) {
+                        Log.e(TAG, "Failed to parse Google ID token", e)
+                        _authState.value = _authState.value.copy(
+                            isLoading = false,
+                            error = "Failed to parse Google credentials"
+                        )
+                    }
+                } else {
+                    Log.e(TAG, "Unexpected credential type: ${credential.type}")
+                    _authState.value = _authState.value.copy(
+                        isLoading = false,
+                        error = "Unexpected credential type"
+                    )
+                }
+            }
+            else -> {
+                Log.e(TAG, "Unexpected credential class: ${credential.javaClass}")
+                _authState.value = _authState.value.copy(
+                    isLoading = false,
+                    error = "Unexpected credential type"
+                )
+            }
+        }
+    }
+
+    /**
+     * Apple Sign-In via Cognito Hosted UI (web-based flow).
+     * Returns Cognito tokens directly.
+     */
     fun signInWithApple(activity: Activity) {
         viewModelScope.launch {
             _authState.value = _authState.value.copy(isLoading = true, error = null)
@@ -327,6 +457,7 @@ class AuthViewModel : ViewModel() {
                 }
 
                 if (result.isSignedIn) {
+                    authProvider = AuthProviderType.APPLE
                     checkAuthStatus()
                 } else {
                     _authState.value = _authState.value.copy(
@@ -336,10 +467,17 @@ class AuthViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Apple sign in error", e)
-                _authState.value = _authState.value.copy(
-                    isLoading = false,
-                    error = e.message ?: "Apple sign in failed"
-                )
+                // Check if user cancelled
+                if (e.message?.contains("cancelled", ignoreCase = true) == true ||
+                    e.message?.contains("canceled", ignoreCase = true) == true) {
+                    // User cancelled - don't show error
+                    _authState.value = _authState.value.copy(isLoading = false)
+                } else {
+                    _authState.value = _authState.value.copy(
+                        isLoading = false,
+                        error = e.message ?: "Apple sign in failed"
+                    )
+                }
             }
         }
     }

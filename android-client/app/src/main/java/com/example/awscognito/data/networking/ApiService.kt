@@ -1,10 +1,14 @@
 package com.example.awscognito.data.networking
 
+import com.example.awscognito.data.model.AuthTokenResponse
 import com.example.awscognito.data.model.FeedItem
+import com.example.awscognito.data.model.GoogleAuthRequest
 import com.example.awscognito.data.model.MessageResponse
 import com.example.awscognito.data.model.User
+import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.POST
 
 interface ApiService {
     @GET("users/me")
@@ -24,4 +28,10 @@ interface ApiService {
     suspend fun getPrivateMessage(
         @Header("Authorization") token: String
     ): MessageResponse
+
+    // Auth endpoints
+    @POST("auth/google")
+    suspend fun exchangeGoogleToken(
+        @Body request: GoogleAuthRequest
+    ): AuthTokenResponse
 }

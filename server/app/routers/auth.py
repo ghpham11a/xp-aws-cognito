@@ -153,10 +153,12 @@ def verify_google_token(id_token_str: str) -> dict:
 
     Google ID tokens are JWTs signed with Google's private key.
     We verify using Google's public JWKS.
+    Supports multiple client IDs (iOS, Android, Web) via comma-separated config.
     """
     settings = get_settings()
 
-    if not settings.google_client_id:
+    google_client_ids = settings.google_client_ids
+    if not google_client_ids:
         logger.error("Google client ID not configured")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -200,17 +202,30 @@ def verify_google_token(id_token_str: str) -> dict:
 
         # Verify and decode token
         # Google tokens have issuer "https://accounts.google.com" or "accounts.google.com"
-        # Audience should be your app's client ID
-        claims = jwt.decode(
-            id_token_str,
-            key.to_pem().decode("utf-8"),
-            algorithms=["RS256"],
-            audience=settings.google_client_id,
-            options={
-                "verify_at_hash": False,
-                "verify_iss": False,  # We'll verify manually due to multiple issuers
-            },
-        )
+        # Audience should be one of your app's client IDs (iOS, Android, or Web)
+        # python-jose doesn't support list of audiences, so we try each one
+        claims = None
+        last_error = None
+
+        for client_id in google_client_ids:
+            try:
+                claims = jwt.decode(
+                    id_token_str,
+                    key.to_pem().decode("utf-8"),
+                    algorithms=["RS256"],
+                    audience=client_id,
+                    options={
+                        "verify_at_hash": False,
+                        "verify_iss": False,  # We'll verify manually due to multiple issuers
+                    },
+                )
+                break  # Successfully decoded with this audience
+            except JWTError as e:
+                last_error = e
+                continue  # Try next client ID
+
+        if claims is None:
+            raise last_error or JWTError("No valid audience found")
 
         # Manually verify issuer (Google uses two different issuer values)
         issuer = claims.get("iss")

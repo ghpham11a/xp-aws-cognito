@@ -394,9 +394,286 @@ For the backend to issue tokens via `ADMIN_USER_PASSWORD_AUTH`, the Cognito App 
 
 Apple Sign-In works well with Cognito's hosted UI because Apple's native SDK (`ASAuthorizationController`) integrates seamlessly with the system. Google Sign-In benefits from the native SDK approach because it provides a smoother, more Google-like experience without browser redirects.
 
-### Key Gotchas
+### Key Gotchas (iOS)
 
 - **Google Client ID type**: For native iOS Google Sign-In, create an **iOS** OAuth client ID in Google Cloud Console (different from the Web client ID used for Cognito hosted UI)
 - **Token storage**: Native Google users' tokens are stored in memory (`AuthManager.nativeIdToken`), not in Amplify's secure storage. Consider using Keychain for production.
 - **Sign-out**: Must handle both `GIDSignIn.sharedInstance.signOut()` (Google) and `Amplify.Auth.signOut()` (Cognito/Apple) depending on auth provider
 - **IAM permissions**: Backend needs `cognito-idp:AdminCreateUser`, `AdminGetUser`, `AdminSetUserPassword`, `AdminInitiateAuth` permissions
+
+---
+
+## Android Native Social Sign-In (Google & Apple)
+
+The Android app uses:
+- **Native Google Sign-In** via Credential Manager API + backend token exchange
+- **Apple Sign-In** via Cognito Hosted UI (web-based)
+
+### Google Sign-In Setup (Android)
+
+#### 1. Google Cloud Console
+
+**Create a Web OAuth Client** (NOT Android type):
+1. Go to **Google Cloud Console → APIs & Credentials → Create Credentials → OAuth client ID**
+2. Type: **Web application**
+3. Save the **Client ID** — this is used in both the Android app and backend
+
+> **Important**: You do NOT need an Android-type OAuth client for Credential Manager. The Web client ID is sufficient.
+
+#### 2. Android Configuration
+
+**gradle/libs.versions.toml** — Add dependencies:
+```toml
+[versions]
+credentials = "1.5.0-rc01"
+playServicesAuth = "21.3.0"
+
+[libraries]
+google-signin = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
+google-id = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version = "1.1.1" }
+```
+
+**app/build.gradle.kts** — Add implementations:
+```kotlin
+implementation(libs.google.signin)
+implementation(libs.androidx.credentials)
+implementation(libs.androidx.credentials.play.services)
+implementation(libs.google.id)
+```
+
+**res/values/strings.xml** — Store the Web Client ID:
+```xml
+<string name="google_web_client_id">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+```
+
+#### 3. AuthViewModel Implementation
+
+```kotlin
+fun signInWithGoogle(context: Context, webClientId: String) {
+    viewModelScope.launch {
+        val credentialManager = CredentialManager.create(context)
+
+        // Step 1: Request Google ID token using Credential Manager
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId(webClientId)  // Web Client ID, NOT Android
+            .build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
+        val result = credentialManager.getCredential(request = request, context = context)
+
+        // Step 2: Extract Google ID token from credential
+        val credential = result.credential as CustomCredential
+        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+        val googleIdToken = googleIdTokenCredential.idToken
+
+        // Step 3: Exchange Google token for Cognito tokens via backend
+        val authResponse = ApiClient.apiService.exchangeGoogleToken(
+            GoogleAuthRequest(
+                idToken = googleIdToken,
+                email = googleIdTokenCredential.id,
+                fullName = googleIdTokenCredential.displayName
+            )
+        )
+
+        // Step 4: Store Cognito tokens locally
+        nativeIdToken = authResponse.idToken
+        nativeAccessToken = authResponse.accessToken
+        authProvider = AuthProviderType.GOOGLE
+    }
+}
+```
+
+#### 4. API Service (Retrofit)
+
+```kotlin
+interface ApiService {
+    @POST("auth/google")
+    suspend fun exchangeGoogleToken(@Body request: GoogleAuthRequest): AuthTokenResponse
+}
+
+data class GoogleAuthRequest(
+    @SerializedName("id_token") val idToken: String,
+    val email: String?,
+    @SerializedName("full_name") val fullName: String?
+)
+
+data class AuthTokenResponse(
+    @SerializedName("id_token") val idToken: String,
+    @SerializedName("access_token") val accessToken: String,
+    @SerializedName("refresh_token") val refreshToken: String?,
+    @SerializedName("expires_in") val expiresIn: Int
+)
+```
+
+### Apple Sign-In Setup (Android)
+
+Apple Sign-In on Android uses Cognito's Hosted UI (web-based flow).
+
+#### 1. Amplify Configuration
+
+**res/raw/amplifyconfiguration.json**:
+```json
+{
+  "auth": {
+    "plugins": {
+      "awsCognitoAuthPlugin": {
+        "CognitoUserPool": {
+          "Default": {
+            "PoolId": "us-east-1_XXXXXX",
+            "AppClientId": "your-app-client-id",
+            "Region": "us-east-1"
+          }
+        },
+        "Auth": {
+          "Default": {
+            "authenticationFlowType": "USER_SRP_AUTH",
+            "socialProviders": ["APPLE", "GOOGLE"],
+            "OAuth": {
+              "WebDomain": "your-domain.auth.us-east-1.amazoncognito.com",
+              "AppClientId": "your-app-client-id",
+              "SignInRedirectURI": "awscognito://callback",
+              "SignOutRedirectURI": "awscognito://signout",
+              "Scopes": ["openid", "email", "profile"]
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+#### 2. AndroidManifest.xml
+
+Register the deep link scheme for OAuth callbacks:
+```xml
+<activity
+    android:name=".MainActivity"
+    android:exported="true"
+    android:launchMode="singleTask">
+    <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="awscognito" />
+    </intent-filter>
+</activity>
+```
+
+#### 3. MainActivity — Handle OAuth Callback
+
+```kotlin
+class MainActivity : ComponentActivity() {
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Handle OAuth redirect callback from Cognito Hosted UI
+        if (intent.data?.scheme == "awscognito") {
+            Amplify.Auth.handleWebUISignInResponse(intent)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Handle OAuth redirect if app was launched fresh from callback
+        intent?.let {
+            if (it.data?.scheme == "awscognito") {
+                Amplify.Auth.handleWebUISignInResponse(it)
+            }
+        }
+        // ... rest of onCreate
+    }
+}
+```
+
+#### 4. AuthViewModel — Apple Sign-In
+
+```kotlin
+fun signInWithApple(activity: Activity) {
+    viewModelScope.launch {
+        val result = suspendCoroutine { continuation ->
+            Amplify.Auth.signInWithSocialWebUI(
+                AuthProvider.apple(),
+                activity,
+                { continuation.resume(it) },
+                { continuation.resumeWithException(it) }
+            )
+        }
+
+        if (result.isSignedIn) {
+            authProvider = AuthProviderType.APPLE
+            checkAuthStatus()  // Fetch user attributes from Amplify session
+        }
+    }
+}
+```
+
+### Backend Configuration for Android
+
+#### Server Environment Variables (.env)
+
+```bash
+# Google Sign-In — comma-separated list for multiple platforms (iOS, Android/Web)
+GOOGLE_CLIENT_ID=ios-client-id.apps.googleusercontent.com,web-client-id.apps.googleusercontent.com
+
+# AWS credentials for Cognito admin operations
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_REGION=us-east-1
+
+# Cognito
+COGNITO_USER_POOL_ID=us-east-1_XXXXXX
+COGNITO_CLIENT_ID=your-app-client-id
+```
+
+> **Multiple Google Client IDs**: The backend accepts multiple client IDs (comma-separated) to support tokens from different platforms. Each platform may send tokens with a different audience.
+
+#### IAM Permissions Required
+
+The AWS credentials need these Cognito permissions:
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "cognito-idp:AdminGetUser",
+    "cognito-idp:AdminCreateUser",
+    "cognito-idp:AdminSetUserPassword",
+    "cognito-idp:AdminInitiateAuth"
+  ],
+  "Resource": "arn:aws:cognito-idp:us-east-1:*:userpool/your-user-pool-id"
+}
+```
+
+#### Cognito App Client Settings
+
+1. **Enable `ALLOW_ADMIN_USER_PASSWORD_AUTH`** — Required for backend token generation
+2. **Callback URLs**: Add `awscognito://callback`
+3. **Sign-out URLs**: Add `awscognito://signout`
+4. **Identity providers**: Enable Apple (for hosted UI flow)
+
+### Key Gotchas (Android)
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| **"Invalid audience" error** | Backend `GOOGLE_CLIENT_ID` doesn't match Android app's Web Client ID | Use the same Web Client ID in both `strings.xml` and server `.env` |
+| **"audience must be a string"** | python-jose doesn't accept list | Backend iterates through client IDs (already fixed in this codebase) |
+| **Apple Sign-In stuck at loading** | OAuth callback not handled | Add `Amplify.Auth.handleWebUISignInResponse(intent)` in `onNewIntent` and `onCreate` |
+| **"Access Token does not have required scopes"** | Missing scope for `fetchUserAttributes()` | Add `aws.cognito.signin.user.admin` to Cognito scopes, or handle the error gracefully |
+| **Password policy error** | Cognito requires special characters | Password generation includes `Aa1!` prefix to meet policy |
+
+### Android vs iOS Comparison
+
+| Aspect | Android | iOS |
+|--------|---------|-----|
+| **Google Sign-In** | Credential Manager API | GIDSignIn SDK |
+| **Google Client ID** | Web Client ID | iOS Client ID |
+| **Apple Sign-In** | Cognito Hosted UI | Cognito Hosted UI (or native) |
+| **OAuth Callback** | `Amplify.Auth.handleWebUISignInResponse()` | Automatic via URL scheme |
+| **Token Storage** | In-memory (`nativeIdToken`) | In-memory (`nativeIdToken`) |

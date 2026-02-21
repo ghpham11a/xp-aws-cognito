@@ -17,8 +17,15 @@ class Settings(BaseSettings):
 
     # Apple Sign In
     apple_bundle_id: str = ""  # Your iOS app bundle ID (e.g., "com.example.AWSCognito")
-    # Google Sign-In
-    google_client_id: str = ""
+    # Google Sign-In (comma-separated list of client IDs for iOS, Android, Web)
+    google_client_id: str = ""  # Can be comma-separated: "ios-client-id,android-client-id,web-client-id"
+
+    @property
+    def google_client_ids(self) -> list[str]:
+        """Parse comma-separated Google client IDs into a list."""
+        if not self.google_client_id:
+            return []
+        return [cid.strip() for cid in self.google_client_id.split(",") if cid.strip()]
 
     # CORS
     cors_origins: list[str] = [
