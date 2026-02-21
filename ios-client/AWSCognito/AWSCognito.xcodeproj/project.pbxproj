@@ -10,6 +10,7 @@
 		CE17FF4F2F342290002C455D /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0B2F2C100000D29722 /* Amplify */; };
 		CE17FF502F342290002C455D /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0C2F2C100000D29722 /* AWSCognitoAuthPlugin */; };
 		CEC577252F38D23E006169CA /* Swinject in Frameworks */ = {isa = PBXBuildFile; productRef = CEC577242F38D23E006169CA /* Swinject */; };
+		CE3A91012F3E0001006169CA /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = CE3A91002F3E0001006169CA /* GoogleSignIn */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +62,7 @@
 				CE17FF502F342290002C455D /* AWSCognitoAuthPlugin in Frameworks */,
 				CE17FF4F2F342290002C455D /* Amplify in Frameworks */,
 				CEC577252F38D23E006169CA /* Swinject in Frameworks */,
+				CE3A91012F3E0001006169CA /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -124,6 +126,7 @@
 				CECD9F0B2F2C100000D29722 /* Amplify */,
 				CECD9F0C2F2C100000D29722 /* AWSCognitoAuthPlugin */,
 				CEC577242F38D23E006169CA /* Swinject */,
+				CE3A91002F3E0001006169CA /* GoogleSignIn */,
 			);
 			productName = AWSCognito;
 			productReference = CECD9FDF2F2C0DFC00D29722 /* AWSCognito.app */;
@@ -210,6 +213,7 @@
 			packageReferences = (
 				CECD9F0A2F2C100000D29722 /* XCRemoteSwiftPackageReference "amplify-swift" */,
 				CEC577232F38D23E006169CA /* XCRemoteSwiftPackageReference "Swinject" */,
+				CE3A90FF2F3E0001006169CA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CECD9FE02F2C0DFC00D29722 /* Products */;
@@ -635,6 +639,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		CE3A90FF2F3E0001006169CA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
 		CEC577232F38D23E006169CA /* XCRemoteSwiftPackageReference "Swinject" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/Swinject/Swinject.git";
@@ -654,6 +666,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		CE3A91002F3E0001006169CA /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE3A90FF2F3E0001006169CA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
 		CECD9F0B2F2C100000D29722 /* Amplify */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CECD9F0A2F2C100000D29722 /* XCRemoteSwiftPackageReference "amplify-swift" */;

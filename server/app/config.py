@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     # Apple Sign In
     apple_bundle_id: str = ""  # Your iOS app bundle ID (e.g., "com.example.AWSCognito")
+    # Google Sign-In
+    google_client_id: str = ""
 
     # CORS
     cors_origins: list[str] = [

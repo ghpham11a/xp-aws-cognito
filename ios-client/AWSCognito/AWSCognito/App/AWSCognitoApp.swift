@@ -6,6 +6,7 @@
 import SwiftUI
 import Amplify
 import AWSCognitoAuthPlugin
+import GoogleSignIn
 
 @main
 struct AWSCognitoApp: App {
@@ -22,6 +23,9 @@ struct AWSCognitoApp: App {
             ContentView()
                 .environment(routeManager)
                 .environment(authManager)
+                .onOpenURL { url in
+                    GIDSignIn.sharedInstance.handle(url)
+                }
         }
     }
 

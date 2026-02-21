@@ -10,6 +10,12 @@ import Amplify
 import AWSPluginsCore
 import AWSCognitoAuthPlugin
 import AuthenticationServices
+import GoogleSignIn
+
+enum AuthProvider {
+    case cognito
+    case google
+}
 
 @Observable
 @MainActor
@@ -36,20 +42,27 @@ final class AuthManager {
     var passwordChangeSuccess = false
     var passwordChangeError: String?
 
+<<<<<<< HEAD
     // Native Apple Sign-In tokens (stored when using native flow)
     private var nativeIdToken: String?
     private var nativeAccessToken: String?
 
     private let appleSignInService = AppleSignInService()
     private let apiService = APIService()
+=======
+    // Auth provider tracking
+    private var authProvider: AuthProvider = .cognito
+    private var googleIdToken: String?
+>>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
 
     init() {
         Task {
             await checkAuthStatus()
         }
     }
-    
+
     func checkAuthStatus() async {
+<<<<<<< HEAD
         // Check native token first (for native Apple Sign-In)
         if nativeIdToken != nil {
             isAuthenticated = true
@@ -60,11 +73,34 @@ final class AuthManager {
         do {
             let session = try await Amplify.Auth.fetchAuthSession()
             isAuthenticated = session.isSignedIn
+=======
+        // Try restoring Google session first
+        do {
+            let googleUser = try await GIDSignIn.sharedInstance.restorePreviousSignIn()
+            if let idToken = googleUser.idToken?.tokenString {
+                googleIdToken = idToken
+                authProvider = .google
+                isAuthenticated = true
+                email = googleUser.profile?.email
+                userId = googleUser.userID
+                return
+            }
+        } catch {
+            // No previous Google session, try Cognito
+        }
+
+        do {
+            let session = try await Amplify.Auth.fetchAuthSession()
+            isAuthenticated = session.isSignedIn
+            if session.isSignedIn {
+                authProvider = .cognito
+            }
+>>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
         } catch {
             print("err: \(error)")
         }
     }
-    
+
     private func fetchUserAttributes() async {
         do {
             let attributes = try await Amplify.Auth.fetchUserAttributes()
@@ -82,7 +118,7 @@ final class AuthManager {
             print("err: \(error)")
         }
     }
-    
+
     private func provisionUser() async {
         guard let token = try? await getIdToken() else { return }
         do {
@@ -91,14 +127,21 @@ final class AuthManager {
             print("err: \(error)")
         }
     }
-    
+
     func getIdToken() async throws -> String? {
+<<<<<<< HEAD
         // Return native token if available (from native Apple Sign-In)
         if let nativeToken = nativeIdToken {
             return nativeToken
         }
 
         // Fall back to Amplify session (for email/password and web OAuth)
+=======
+        if authProvider == .google {
+            return googleIdToken
+        }
+
+>>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
         let session = try await Amplify.Auth.fetchAuthSession()
         if let cognitoTokenProvider = session as? AuthCognitoTokensProvider {
             let tokens = try cognitoTokenProvider.getCognitoTokens().get()
@@ -106,7 +149,7 @@ final class AuthManager {
         }
         return nil
     }
-    
+
     func signUp(email: String, password: String) async {
         isLoading = true
         authError = nil
@@ -194,6 +237,7 @@ final class AuthManager {
             if result.isSignedIn {
                 isAuthenticated = true
                 showLoginView = false
+                authProvider = .cognito
                 await fetchUserAttributes()
             }
 
@@ -201,13 +245,13 @@ final class AuthManager {
                 needsConfirmation = true
                 confirmationEmail = email
             }
-    
+
         } catch let error as AuthError {
             authError = error.errorDescription
         } catch {
             authError = error.localizedDescription
         }
-        
+
         print("authError \(authError ?? "")")
 
         isLoading = false
@@ -216,6 +260,7 @@ final class AuthManager {
     func signOut() async {
         isLoading = true
 
+<<<<<<< HEAD
         // Sign out from Amplify (for email/password and web OAuth users)
         _ = await Amplify.Auth.signOut(options: .init(globalSignOut: false))
 
@@ -224,6 +269,16 @@ final class AuthManager {
         nativeAccessToken = nil
 
         // Clear all state
+=======
+        if authProvider == .google {
+            GIDSignIn.sharedInstance.signOut()
+            googleIdToken = nil
+        } else {
+            _ = await Amplify.Auth.signOut(options: .init(globalSignOut: false))
+        }
+
+        authProvider = .cognito
+>>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
         isAuthenticated = false
         userId = nil
         email = nil
@@ -251,7 +306,7 @@ final class AuthManager {
 
         isLoading = false
     }
-    
+
     func presentLoginView() {
         showLoginView = true
     }
@@ -320,6 +375,7 @@ final class AuthManager {
             if result.isSignedIn {
                 isAuthenticated = true
                 showLoginView = false
+                authProvider = .cognito
                 await fetchUserAttributes()
             }
         } catch let error as AuthError {
@@ -336,14 +392,26 @@ final class AuthManager {
         authError = nil
 
         do {
-            let result = try await Amplify.Auth.signInWithWebUI(for: .google, presentationAnchor: getPresentationAnchor(), options: .preferPrivateSession())
-            if result.isSignedIn {
-                isAuthenticated = true
-                showLoginView = false
-                await fetchUserAttributes()
+            guard let presentingVC = getPresentationAnchor().rootViewController else {
+                authError = "Unable to find presenting view controller"
+                isLoading = false
+                return
             }
-        } catch let error as AuthError {
-            authError = error.errorDescription
+
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingVC)
+
+            guard let idToken = result.user.idToken?.tokenString else {
+                authError = "Google Sign-In did not return an ID token"
+                isLoading = false
+                return
+            }
+
+            googleIdToken = idToken
+            authProvider = .google
+            isAuthenticated = true
+            showLoginView = false
+            email = result.user.profile?.email
+            userId = result.user.userID
         } catch {
             authError = error.localizedDescription
         }
