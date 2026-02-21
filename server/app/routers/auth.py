@@ -297,8 +297,13 @@ def admin_get_or_create_user(
 
         # Set a random password and confirm the user
         # (Apple users authenticate via token, not password)
+        # Password must meet Cognito policy: uppercase, lowercase, numbers, symbols
         import secrets
-        temp_password = secrets.token_urlsafe(32)
+        import string
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+        temp_password = ''.join(secrets.choice(alphabet) for _ in range(32))
+        # Ensure at least one of each required character type
+        temp_password = "Aa1!" + temp_password[4:]
 
         cognito_client.admin_set_user_password(
             UserPoolId=user_pool_id,
@@ -329,8 +334,14 @@ def admin_get_or_create_google_user(
 
     Returns the Cognito username.
     """
-    # Username format for Google users
-    username = f"google_{google_sub}"
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required for Google sign-in",
+        )
+
+    # Use email as username (Cognito User Pool configured with email as username)
+    username = email
 
     try:
         # Try to get existing user
@@ -353,14 +364,9 @@ def admin_get_or_create_google_user(
     logger.info(f"Creating new Google user: {username}")
 
     user_attributes = [
-        {"Name": "custom:google_sub", "Value": google_sub},
+        {"Name": "email", "Value": email},
+        {"Name": "email_verified", "Value": "true"},
     ]
-
-    if email:
-        user_attributes.extend([
-            {"Name": "email", "Value": email},
-            {"Name": "email_verified", "Value": "true"},
-        ])
 
     if full_name:
         user_attributes.append({"Name": "name", "Value": full_name})
@@ -375,8 +381,13 @@ def admin_get_or_create_google_user(
 
         # Set a random password and confirm the user
         # (Google users authenticate via token, not password)
+        # Password must meet Cognito policy: uppercase, lowercase, numbers, symbols
         import secrets
-        temp_password = secrets.token_urlsafe(32)
+        import string
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+        temp_password = ''.join(secrets.choice(alphabet) for _ in range(32))
+        # Ensure at least one of each required character type
+        temp_password = "Aa1!" + temp_password[4:]
 
         cognito_client.admin_set_user_password(
             UserPoolId=user_pool_id,
@@ -428,7 +439,11 @@ def admin_initiate_auth(
         # ALLOW_ADMIN_USER_PASSWORD_AUTH enabled on the client
 
         import secrets
-        temp_password = secrets.token_urlsafe(32)
+        import string
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+        temp_password = ''.join(secrets.choice(alphabet) for _ in range(32))
+        # Ensure at least one of each required character type
+        temp_password = "Aa1!" + temp_password[4:]
 
         # Reset password to a known value for this auth attempt
         cognito_client.admin_set_user_password(
