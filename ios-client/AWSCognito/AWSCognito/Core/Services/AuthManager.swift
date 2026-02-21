@@ -42,18 +42,17 @@ final class AuthManager {
     var passwordChangeSuccess = false
     var passwordChangeError: String?
 
-<<<<<<< HEAD
     // Native Apple Sign-In tokens (stored when using native flow)
     private var nativeIdToken: String?
     private var nativeAccessToken: String?
 
     private let appleSignInService = AppleSignInService()
     private let apiService = APIService()
-=======
+
     // Auth provider tracking
     private var authProvider: AuthProvider = .cognito
     private var googleIdToken: String?
->>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
+
 
     init() {
         Task {
@@ -62,19 +61,13 @@ final class AuthManager {
     }
 
     func checkAuthStatus() async {
-<<<<<<< HEAD
         // Check native token first (for native Apple Sign-In)
         if nativeIdToken != nil {
             isAuthenticated = true
             return
         }
 
-        // Check Amplify session (for email/password and web OAuth)
-        do {
-            let session = try await Amplify.Auth.fetchAuthSession()
-            isAuthenticated = session.isSignedIn
-=======
-        // Try restoring Google session first
+        // Try restoring Google session
         do {
             let googleUser = try await GIDSignIn.sharedInstance.restorePreviousSignIn()
             if let idToken = googleUser.idToken?.tokenString {
@@ -89,13 +82,13 @@ final class AuthManager {
             // No previous Google session, try Cognito
         }
 
+        // Check Amplify session (for email/password and web OAuth)
         do {
             let session = try await Amplify.Auth.fetchAuthSession()
             isAuthenticated = session.isSignedIn
             if session.isSignedIn {
                 authProvider = .cognito
             }
->>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
         } catch {
             print("err: \(error)")
         }
@@ -129,19 +122,17 @@ final class AuthManager {
     }
 
     func getIdToken() async throws -> String? {
-<<<<<<< HEAD
         // Return native token if available (from native Apple Sign-In)
         if let nativeToken = nativeIdToken {
             return nativeToken
         }
 
-        // Fall back to Amplify session (for email/password and web OAuth)
-=======
+        // Return Google token if signed in with Google
         if authProvider == .google {
             return googleIdToken
         }
 
->>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
+        // Fall back to Amplify session (for email/password and web OAuth)
         let session = try await Amplify.Auth.fetchAuthSession()
         if let cognitoTokenProvider = session as? AuthCognitoTokensProvider {
             let tokens = try cognitoTokenProvider.getCognitoTokens().get()
@@ -260,16 +251,6 @@ final class AuthManager {
     func signOut() async {
         isLoading = true
 
-<<<<<<< HEAD
-        // Sign out from Amplify (for email/password and web OAuth users)
-        _ = await Amplify.Auth.signOut(options: .init(globalSignOut: false))
-
-        // Clear native tokens (for native Apple Sign-In users)
-        nativeIdToken = nil
-        nativeAccessToken = nil
-
-        // Clear all state
-=======
         if authProvider == .google {
             GIDSignIn.sharedInstance.signOut()
             googleIdToken = nil
@@ -277,8 +258,11 @@ final class AuthManager {
             _ = await Amplify.Auth.signOut(options: .init(globalSignOut: false))
         }
 
+        // Clear native tokens (for native Apple Sign-In users)
+        nativeIdToken = nil
+        nativeAccessToken = nil
+
         authProvider = .cognito
->>>>>>> 49daa21c1f963c4204ea0bb328b5ef24d0649265
         isAuthenticated = false
         userId = nil
         email = nil

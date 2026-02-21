@@ -9,8 +9,8 @@
 /* Begin PBXBuildFile section */
 		CE17FF4F2F342290002C455D /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0B2F2C100000D29722 /* Amplify */; };
 		CE17FF502F342290002C455D /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0C2F2C100000D29722 /* AWSCognitoAuthPlugin */; };
-		CEC577252F38D23E006169CA /* Swinject in Frameworks */ = {isa = PBXBuildFile; productRef = CEC577242F38D23E006169CA /* Swinject */; };
 		CE3A91012F3E0001006169CA /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = CE3A91002F3E0001006169CA /* GoogleSignIn */; };
+		CEC577252F38D23E006169CA /* Swinject in Frameworks */ = {isa = PBXBuildFile; productRef = CEC577242F38D23E006169CA /* Swinject */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -671,6 +671,11 @@
 			package = CE3A90FF2F3E0001006169CA /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignIn;
 		};
+		CEC577242F38D23E006169CA /* Swinject */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CEC577232F38D23E006169CA /* XCRemoteSwiftPackageReference "Swinject" */;
+			productName = Swinject;
+		};
 		CECD9F0B2F2C100000D29722 /* Amplify */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CECD9F0A2F2C100000D29722 /* XCRemoteSwiftPackageReference "amplify-swift" */;
@@ -680,11 +685,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CECD9F0A2F2C100000D29722 /* XCRemoteSwiftPackageReference "amplify-swift" */;
 			productName = AWSCognitoAuthPlugin;
-		};
-		CEC577242F38D23E006169CA /* Swinject */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CEC577232F38D23E006169CA /* XCRemoteSwiftPackageReference "Swinject" */;
-			productName = Swinject;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

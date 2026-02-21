@@ -15,11 +15,11 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.670999433286-rchnsgi0krm5g47hpflr7mg2pv8209jh</string>
+				<string>com.googleusercontent.apps.670999433286-og6dnblphnbl638iks62v5tiupc0gl0j</string>
 			</array>
 		</dict>
 	</array>
 	<key>GIDClientID</key>
-	<string>670999433286-rchnsgi0krm5g47hpflr7mg2pv8209jh.apps.googleusercontent.com</string>
+	<string>670999433286-og6dnblphnbl638iks62v5tiupc0gl0j.apps.googleusercontent.com</string>
 </dict>
 </plist>
