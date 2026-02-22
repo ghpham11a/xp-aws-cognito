@@ -248,6 +248,16 @@ This project uses **native SDKs + backend token exchange** — the production-st
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### iOS Prerequisites
+
+Before running the iOS app with Apple Sign-In:
+
+1. **Add "Sign in with Apple" capability in Xcode**: Open the project → select the **AWSCognito** target → **Signing & Capabilities** → **+ Capability** → **Sign in with Apple**. Without this, `ASAuthorizationController` will fail with error 1000 (`com.apple.AuthenticationServices.AuthorizationError`).
+
+2. **Apple Developer Portal**: Ensure your App ID has "Sign in with Apple" enabled under **Certificates, Identifiers & Profiles → Identifiers → your app**.
+
+3. **Simulator**: You must be signed into an Apple ID in **Settings → Apple Account** on the simulator.
+
 ### iOS Implementation (Key Files)
 
 #### 1. AuthManager.swift — Social Sign-In Methods
