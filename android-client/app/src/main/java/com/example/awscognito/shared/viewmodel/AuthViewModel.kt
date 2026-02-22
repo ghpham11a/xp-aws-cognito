@@ -2,6 +2,7 @@ package com.example.awscognito.shared.viewmodel
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -9,14 +10,16 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.amplifyframework.auth.AuthProvider
 import com.amplifyframework.auth.AuthUserAttributeKey
 import com.amplifyframework.auth.options.AuthSignUpOptions
 import com.amplifyframework.core.Amplify
+import com.example.awscognito.data.model.AppleAuthRequest
 import com.example.awscognito.data.model.GoogleAuthRequest
 import com.example.awscognito.data.networking.ApiClient
 import com.example.awscognito.data.model.FeedItem
 import com.example.awscognito.data.model.User
+import com.example.awscognito.features.login.AppleSignInActivity.Companion.EXTRA_CLIENT_ID
+import com.example.awscognito.features.login.AppleSignInActivity.Companion.EXTRA_REDIRECT_URI
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
@@ -440,44 +443,87 @@ class AuthViewModel : ViewModel() {
     }
 
     /**
-     * Apple Sign-In via Cognito Hosted UI (web-based flow).
-     * Returns Cognito tokens directly.
+     * Native Apple Sign-In using Custom Chrome Tabs.
+     * Launches AppleSignInActivity which opens Chrome Tab.
+     * Callback comes via deep link to MainActivity.
      */
-    fun signInWithApple(activity: Activity) {
+    fun signInWithApple(
+        activity: Activity,
+        clientId: String,
+        redirectUri: String
+    ) {
+        _authState.value = _authState.value.copy(isLoading = true, error = null)
+
+        val intent = Intent(activity, com.example.awscognito.features.login.AppleSignInActivity::class.java).apply {
+            putExtra(EXTRA_CLIENT_ID, clientId)
+            putExtra(EXTRA_REDIRECT_URI, redirectUri)
+        }
+        activity.startActivity(intent)
+    }
+
+    /**
+     * Handle Apple Sign-In callback from deep link.
+     * Called by MainActivity when awscognito://apple-callback is received.
+     */
+    fun handleAppleSignInCallback(
+        idToken: String?,
+        code: String?,
+        email: String?,
+        name: String?,
+        error: String?
+    ) {
         viewModelScope.launch {
             _authState.value = _authState.value.copy(isLoading = true, error = null)
-            try {
-                val result = suspendCoroutine { continuation ->
-                    Amplify.Auth.signInWithSocialWebUI(
-                        AuthProvider.apple(),
-                        activity,
-                        { continuation.resume(it) },
-                        { continuation.resumeWithException(it) }
-                    )
-                }
 
-                if (result.isSignedIn) {
-                    authProvider = AuthProviderType.APPLE
-                    checkAuthStatus()
-                } else {
-                    _authState.value = _authState.value.copy(
-                        isLoading = false,
-                        error = "Apple sign in incomplete"
+            if (error != null) {
+                Log.e(TAG, "Apple Sign-In callback error: $error")
+                _authState.value = _authState.value.copy(
+                    isLoading = false,
+                    error = error
+                )
+                return@launch
+            }
+
+            if (idToken == null || code == null) {
+                Log.e(TAG, "Apple Sign-In callback missing tokens")
+                _authState.value = _authState.value.copy(
+                    isLoading = false,
+                    error = "Missing tokens in callback"
+                )
+                return@launch
+            }
+
+            try {
+                Log.d(TAG, "Exchanging Apple token with backend")
+                // Exchange Apple token for Cognito tokens via backend
+                val authResponse = ApiClient.apiService.exchangeAppleToken(
+                    AppleAuthRequest(
+                        identityToken = idToken,
+                        authorizationCode = code,
+                        email = email?.takeIf { it.isNotEmpty() },
+                        fullName = name?.takeIf { it.isNotEmpty() }
                     )
-                }
+                )
+
+                // Store Cognito tokens and update state
+                nativeIdToken = authResponse.idToken
+                nativeAccessToken = authResponse.accessToken
+                authProvider = AuthProviderType.APPLE
+
+                Log.d(TAG, "Apple Sign-In successful")
+                _authState.value = AuthState(
+                    isAuthenticated = true,
+                    isLoading = false,
+                    email = email,
+                    userId = null
+                )
+
             } catch (e: Exception) {
-                Log.e(TAG, "Apple sign in error", e)
-                // Check if user cancelled
-                if (e.message?.contains("cancelled", ignoreCase = true) == true ||
-                    e.message?.contains("canceled", ignoreCase = true) == true) {
-                    // User cancelled - don't show error
-                    _authState.value = _authState.value.copy(isLoading = false)
-                } else {
-                    _authState.value = _authState.value.copy(
-                        isLoading = false,
-                        error = e.message ?: "Apple sign in failed"
-                    )
-                }
+                Log.e(TAG, "Apple token exchange error", e)
+                _authState.value = _authState.value.copy(
+                    isLoading = false,
+                    error = e.message ?: "Apple sign in failed"
+                )
             }
         }
     }

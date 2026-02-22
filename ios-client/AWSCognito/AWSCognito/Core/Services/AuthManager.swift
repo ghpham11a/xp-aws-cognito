@@ -10,6 +10,7 @@ import Amplify
 import AWSPluginsCore
 import AWSCognitoAuthPlugin
 import GoogleSignIn
+import AuthenticationServices
 
 enum AuthProvider {
     case cognito
@@ -282,31 +283,88 @@ final class AuthManager {
         authError = nil
 
         do {
-            let result = try await Amplify.Auth.signInWithWebUI(
-                for: .apple,
-                presentationAnchor: getPresentationAnchor(),
-                options: .preferPrivateSession()
+            // Step 1: Native Apple Sign-In using ASAuthorizationController
+            let appleIDProvider = ASAuthorizationAppleIDProvider()
+            let request = appleIDProvider.createRequest()
+            request.requestedScopes = [.fullName, .email]
+
+            let result = try await performAppleSignIn(request: request)
+
+            guard let appleIDCredential = result.credential as? ASAuthorizationAppleIDCredential else {
+                authError = "Invalid Apple credential type"
+                isLoading = false
+                return
+            }
+
+            guard let identityTokenData = appleIDCredential.identityToken,
+                  let identityToken = String(data: identityTokenData, encoding: .utf8) else {
+                authError = "Apple Sign-In did not return an identity token"
+                isLoading = false
+                return
+            }
+
+            guard let authorizationCodeData = appleIDCredential.authorizationCode,
+                  let authorizationCode = String(data: authorizationCodeData, encoding: .utf8) else {
+                authError = "Apple Sign-In did not return an authorization code"
+                isLoading = false
+                return
+            }
+
+            // Extract user info (only available on first sign-in)
+            let appleEmail = appleIDCredential.email
+            var fullName: String?
+            if let nameComponents = appleIDCredential.fullName {
+                let formatter = PersonNameComponentsFormatter()
+                let name = formatter.string(from: nameComponents)
+                if !name.isEmpty {
+                    fullName = name
+                }
+            }
+
+            // Step 2: Exchange Apple token for Cognito tokens via backend
+            let authResponse = try await apiService.exchangeAppleToken(
+                identityToken: identityToken,
+                authorizationCode: authorizationCode,
+                email: appleEmail,
+                fullName: fullName
             )
-            if result.isSignedIn {
-                isAuthenticated = true
-                showLoginView = false
-                authProvider = .apple
-                await fetchUserAttributes()
-            }
-        } catch let error as AuthError {
-            if case .service(_, _, let underlyingError) = error,
-               let cognitoError = underlyingError as? AWSCognitoAuthError,
-               case .userCancelled = cognitoError {
-                // User cancelled - don't show error
-            } else {
-                self.authError = error.errorDescription
-            }
+
+            // Step 3: Store Cognito tokens and update state
+            nativeIdToken = authResponse.idToken
+            nativeAccessToken = authResponse.accessToken
+            authProvider = .apple
+            isAuthenticated = true
+            showLoginView = false
+            email = appleEmail
+            userId = appleIDCredential.user
+
+        } catch let error as ASAuthorizationError where error.code == .canceled {
+            // User cancelled - don't show error
+        } catch let error as APIError {
+            authError = error.errorDescription
         } catch {
-            self.authError = error.localizedDescription
+            authError = error.localizedDescription
         }
 
         isLoading = false
     }
+
+    private func performAppleSignIn(request: ASAuthorizationAppleIDRequest) async throws -> ASAuthorization {
+        try await withCheckedThrowingContinuation { continuation in
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            let delegate = AppleSignInDelegate(continuation: continuation)
+
+            // Store delegate to prevent deallocation
+            appleSignInDelegate = delegate
+
+            controller.delegate = delegate
+            controller.presentationContextProvider = delegate
+            controller.performRequests()
+        }
+    }
+
+    // Stored reference to prevent delegate deallocation during async operation
+    private var appleSignInDelegate: AppleSignInDelegate?
 
     func signInWithGoogle() async {
         isLoading = true
@@ -363,5 +421,35 @@ final class AuthManager {
             fatalError("No window found")
         }
         return window
+    }
+}
+
+// MARK: - Apple Sign In Delegate
+
+private class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+
+    private var continuation: CheckedContinuation<ASAuthorization, Error>?
+
+    init(continuation: CheckedContinuation<ASAuthorization, Error>) {
+        self.continuation = continuation
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = scene.windows.first
+        else {
+            fatalError("No window found")
+        }
+        return window
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        continuation?.resume(returning: authorization)
+        continuation = nil
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        continuation?.resume(throwing: error)
+        continuation = nil
     }
 }

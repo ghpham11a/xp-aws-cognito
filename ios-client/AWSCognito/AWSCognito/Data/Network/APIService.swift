@@ -162,6 +162,52 @@ class APIService {
             throw APIError.networkError(error)
         }
     }
+
+    // MARK: - Apple Sign In
+
+    func exchangeAppleToken(
+        identityToken: String,
+        authorizationCode: String,
+        email: String?,
+        fullName: String?
+    ) async throws -> AuthTokenResponse {
+        guard let url = URL(string: "\(baseURL)/auth/apple") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+
+        let body = AppleAuthRequest(
+            identityToken: identityToken,
+            authorizationCode: authorizationCode,
+            email: email,
+            fullName: fullName
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                throw APIError.httpError(httpResponse.statusCode)
+            }
+
+            return try JSONDecoder().decode(AuthTokenResponse.self, from: data)
+        } catch let error as APIError {
+            throw error
+        } catch let error as DecodingError {
+            throw APIError.decodingError(error)
+        } catch {
+            throw APIError.networkError(error)
+        }
+    }
 }
 
 struct GoogleAuthRequest: Encodable {
@@ -171,6 +217,20 @@ struct GoogleAuthRequest: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case idToken = "id_token"
+        case email
+        case fullName = "full_name"
+    }
+}
+
+struct AppleAuthRequest: Encodable {
+    let identityToken: String
+    let authorizationCode: String
+    let email: String?
+    let fullName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case identityToken = "identity_token"
+        case authorizationCode = "authorization_code"
         case email
         case fullName = "full_name"
     }

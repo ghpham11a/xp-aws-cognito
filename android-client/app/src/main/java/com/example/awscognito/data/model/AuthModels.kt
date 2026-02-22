@@ -10,6 +10,16 @@ data class GoogleAuthRequest(
     val fullName: String?
 )
 
+data class AppleAuthRequest(
+    @SerializedName("identity_token")
+    val identityToken: String,
+    @SerializedName("authorization_code")
+    val authorizationCode: String,
+    val email: String?,
+    @SerializedName("full_name")
+    val fullName: String?
+)
+
 data class AuthTokenResponse(
     @SerializedName("id_token")
     val idToken: String,

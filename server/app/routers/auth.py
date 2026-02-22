@@ -15,8 +15,10 @@ from typing import Annotated
 
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Form, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from urllib.parse import urlencode
 from jose import jwt, jwk, JWTError
 
 from config import get_settings
@@ -599,3 +601,81 @@ async def google_sign_in(request: GoogleAuthRequest):
     logger.info(f"Google sign-in successful for user: {username}")
 
     return tokens
+
+
+@router.post("/apple/callback", response_class=HTMLResponse)
+async def apple_callback(
+    code: str = Form(None),
+    id_token: str = Form(None),
+    state: str = Form(None),
+    user: str = Form(None),
+    error: str = Form(None),
+):
+    """
+    OAuth callback for Apple Sign-In (form_post response mode).
+
+    Apple POSTs the authorization response to this endpoint.
+    We then redirect to the mobile app using a custom URL scheme.
+
+    This is the production-standard approach for mobile OAuth:
+    1. Mobile app opens Apple auth in browser/Custom Tab
+    2. Apple redirects to this backend callback
+    3. Backend redirects to app's custom scheme with tokens
+    4. App receives tokens and completes sign-in
+    """
+    logger.info(f"Apple callback received - code: {bool(code)}, id_token: {bool(id_token)}, error: {error}")
+
+    # Build redirect URL to mobile app
+    app_scheme = "awscognito"
+    app_path = "apple-callback"
+
+    params = {}
+    if error:
+        params["error"] = error
+    else:
+        if id_token:
+            params["id_token"] = id_token
+        if code:
+            params["code"] = code
+        if user:
+            # Parse user JSON to extract email and name
+            try:
+                import json
+                user_data = json.loads(user)
+                if "email" in user_data:
+                    params["email"] = user_data["email"]
+                if "name" in user_data:
+                    name_parts = []
+                    if user_data["name"].get("firstName"):
+                        name_parts.append(user_data["name"]["firstName"])
+                    if user_data["name"].get("lastName"):
+                        name_parts.append(user_data["name"]["lastName"])
+                    if name_parts:
+                        params["name"] = " ".join(name_parts)
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.warning(f"Failed to parse Apple user data: {e}")
+
+    redirect_url = f"{app_scheme}://{app_path}?{urlencode(params)}"
+    logger.info(f"Redirecting to app: {redirect_url[:100]}...")
+
+    # Return HTML that redirects to the app
+    # Using both meta refresh and JavaScript for compatibility
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="refresh" content="0;url={redirect_url}">
+        <title>Redirecting...</title>
+        <script>
+            window.location.href = "{redirect_url}";
+        </script>
+    </head>
+    <body>
+        <p>Redirecting to app...</p>
+        <p>If you are not redirected, <a href="{redirect_url}">click here</a>.</p>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(content=html_content)

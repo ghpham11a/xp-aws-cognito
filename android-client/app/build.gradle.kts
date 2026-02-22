@@ -76,6 +76,9 @@ dependencies {
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.google.id)
 
+    // Browser (Custom Tabs for Apple Sign-In)
+    implementation(libs.androidx.browser)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

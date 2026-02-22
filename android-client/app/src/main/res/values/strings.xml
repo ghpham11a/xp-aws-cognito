@@ -3,4 +3,9 @@
     <!-- Google Sign-In Web Client ID (OAuth 2.0 Client ID from Google Cloud Console) -->
     <!-- This should be the "Web application" type client ID, not Android -->
     <string name="google_web_client_id">670999433286-rchnsgi0krm5g47hpflr7mg2pv8209jh.apps.googleusercontent.com</string>
+    <!-- Apple Sign-In Services ID (from Apple Developer Console) -->
+    <string name="apple_client_id">com.ap.services.AWSCognito</string>
+    <!-- Apple Sign-In Redirect URI - backend callback that redirects to app -->
+    <!-- Must be registered in Apple Developer Console -->
+    <string name="apple_redirect_uri">https://xp-server.ngrok.dev/auth/apple/callback</string>
 </resources>

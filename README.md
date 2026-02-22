@@ -166,12 +166,14 @@ await signInWithRedirect({ provider: 'Google' });
 
 ## Native Social Sign-In (Google & Apple)
 
-This project supports two approaches for social sign-in:
+This project uses **native SDKs + backend token exchange** — the production-standard approach used by most scaled apps:
 
-1. **Cognito Hosted UI** — Amplify handles the OAuth flow via Cognito's web-based hosted UI
-2. **Native SDKs** — Uses Google/Apple's native SDKs for a seamless experience, with backend token exchange
+1. Native SDK presents provider's sign-in UI (no browser redirect)
+2. Provider returns ID token to the app
+3. App sends token to backend for verification
+4. Backend verifies with provider's JWKS, creates/gets Cognito user, returns Cognito tokens
 
-The iOS app uses **native SDKs** for Google Sign-In and **Cognito Hosted UI** for Apple Sign-In.
+**All platforms** (iOS, Android, Next.js) use this direct pattern for both Google and Apple sign-in.
 
 ### Architecture Overview
 
@@ -215,19 +217,33 @@ The iOS app uses **native SDKs** for Google Sign-In and **Cognito Hosted UI** fo
 │                              APPLE SIGN-IN FLOW                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  ┌─────────┐    Amplify signInWithWebUI(for: .apple)    ┌───────────────┐   │
-│  │   iOS   │ ─────────────────────────────────────────> │ Cognito       │   │
-│  │   App   │                                            │ Hosted UI     │   │
-│  │         │                                            │      │        │   │
-│  │         │                                            │      ▼        │   │
-│  │         │                                            │ ┌──────────┐  │   │
-│  │         │                                            │ │  Apple   │  │   │
-│  │         │                                            │ │   IdP    │  │   │
-│  │         │                                            │ └──────────┘  │   │
-│  │         │                                            │      │        │   │
-│  │         │    Returns Cognito tokens via callback     │      │        │   │
-│  │         │ <───────────────────────────────────────── │──────┘        │   │
-│  └─────────┘    (awscognito://callback)                 └───────────────┘   │
+│  ┌─────────┐    1. Native UI        ┌──────────────────┐                    │
+│  │   iOS   │ ─────────────────────> │ ASAuthorization  │                    │
+│  │   App   │ <───────────────────── │   Controller     │                    │
+│  │         │    Apple ID Token      │ (System sheet)   │                    │
+│  │         │                        └──────────────────┘                    │
+│  │         │                                                                │
+│  │         │    2. POST /auth/apple          ┌─────────────┐                │
+│  │         │    {identity_token, code}       │   Backend   │                │
+│  │         │ ───────────────────────────────>│  (FastAPI)  │                │
+│  │         │                                 │             │                │
+│  │         │                  3. Verify      │      │      │                │
+│  │         │                     token       │      ▼      │                │
+│  │         │                                 │  ┌───────┐  │                │
+│  │         │                                 │  │ Apple │  │                │
+│  │         │                                 │  │ JWKS  │  │                │
+│  │         │                                 │  └───────┘  │                │
+│  │         │                                 │      │      │                │
+│  │         │                  4. Create/get  │      ▼      │                │
+│  │         │                     user        │  ┌───────┐  │                │
+│  │         │                                 │  │Cognito│  │                │
+│  │         │                                 │  │  User │  │                │
+│  │         │                                 │  │ Pool  │  │                │
+│  │         │                                 │  └───────┘  │                │
+│  │         │                                 │      │      │                │
+│  │         │    5. Return Cognito tokens     │      │      │                │
+│  │         │ <───────────────────────────────│──────┘      │                │
+│  └─────────┘                                 └─────────────┘                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -237,14 +253,41 @@ The iOS app uses **native SDKs** for Google Sign-In and **Cognito Hosted UI** fo
 #### 1. AuthManager.swift — Social Sign-In Methods
 
 ```swift
-// Apple Sign-In: Uses Cognito Hosted UI via Amplify
+// Apple Sign-In: Uses native ASAuthorizationController + backend token exchange
 func signInWithApple() async {
-    let result = try await Amplify.Auth.signInWithWebUI(
-        for: .apple,
-        presentationAnchor: getPresentationAnchor(),
-        options: .preferPrivateSession()
+    // Step 1: Native Apple Sign-In (shows system sheet)
+    let appleIDProvider = ASAuthorizationAppleIDProvider()
+    let request = appleIDProvider.createRequest()
+    request.requestedScopes = [.fullName, .email]
+
+    let result = try await performAppleSignIn(request: request)
+
+    // Step 2: Extract tokens from authorization
+    guard let credential = result.credential as? ASAuthorizationAppleIDCredential,
+          let identityTokenData = credential.identityToken,
+          let authCodeData = credential.authorizationCode,
+          let identityToken = String(data: identityTokenData, encoding: .utf8),
+          let authCode = String(data: authCodeData, encoding: .utf8) else {
+        throw AuthError.unknown("Missing Apple credentials")
+    }
+
+    // Email and name are only provided on FIRST sign-in!
+    let email = credential.email
+    let fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+        .compactMap { $0 }.joined(separator: " ")
+
+    // Step 3: Exchange Apple token for Cognito tokens via backend
+    let authResponse = try await apiService.exchangeAppleToken(
+        identityToken: identityToken,
+        authorizationCode: authCode,
+        email: email,
+        fullName: fullName.isEmpty ? nil : fullName
     )
-    // Amplify handles token storage automatically
+
+    // Step 4: Store Cognito tokens locally (not in Amplify)
+    nativeIdToken = authResponse.idToken
+    nativeAccessToken = authResponse.accessToken
+    authProvider = .apple
 }
 
 // Google Sign-In: Uses native SDK + backend token exchange
@@ -266,16 +309,77 @@ func signInWithGoogle() async {
 }
 ```
 
-#### 2. APIService.swift — Token Exchange
+#### 2. AppleSignInDelegate — Async/Await Bridge
 
 ```swift
+class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate,
+                           ASAuthorizationControllerPresentationContextProviding {
+
+    private var continuation: CheckedContinuation<ASAuthorization, Error>?
+
+    func performAppleSignIn(request: ASAuthorizationAppleIDRequest) async throws -> ASAuthorization {
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithAuthorization authorization: ASAuthorization) {
+        continuation?.resume(returning: authorization)
+        continuation = nil
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithError error: Error) {
+        continuation?.resume(throwing: error)
+        continuation = nil
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        // Return the key window
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow } ?? UIWindow()
+    }
+}
+```
+
+#### 3. APIService.swift — Token Exchange
+
+```swift
+struct AppleAuthRequest: Encodable {
+    let identityToken: String
+    let authorizationCode: String
+    let email: String?
+    let fullName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case identityToken = "identity_token"
+        case authorizationCode = "authorization_code"
+        case email
+        case fullName = "full_name"
+    }
+}
+
+func exchangeAppleToken(identityToken: String, authorizationCode: String,
+                        email: String?, fullName: String?) async throws -> AuthTokenResponse {
+    // POST /auth/apple with Apple identity token
+    // Returns Cognito tokens: { id_token, access_token, refresh_token, expires_in }
+}
+
 func exchangeGoogleToken(idToken: String, email: String?, fullName: String?) async throws -> AuthTokenResponse {
     // POST /auth/google with Google ID token
     // Returns Cognito tokens: { id_token, access_token, refresh_token, expires_in }
 }
 ```
 
-#### 3. Token Retrieval (AuthManager.swift)
+#### 4. Token Retrieval (AuthManager.swift)
 
 ```swift
 func getIdToken() async throws -> String? {
@@ -385,20 +489,26 @@ For the backend to issue tokens via `ADMIN_USER_PASSWORD_AUTH`, the Cognito App 
 2. Be a **public client** (no client secret) for Amplify SDK compatibility
 3. Have the backend's IAM user/role with `cognito-idp:Admin*` permissions
 
-### Why Two Different Approaches?
+### Why Native SDK + Backend Exchange?
 
-| Approach | Provider | Pros | Cons |
-|----------|----------|------|------|
-| **Cognito Hosted UI** | Apple | Simple setup, Cognito handles everything | Opens Safari/webview |
-| **Native SDK + Backend** | Google | Native UI, better UX | Requires backend endpoint |
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Cognito Hosted UI** | Simple setup, Cognito handles everything | Opens browser, less native feel |
+| **Native SDK + Backend** | Native UI, better UX, no browser redirects | Requires backend endpoint |
 
-Apple Sign-In works well with Cognito's hosted UI because Apple's native SDK (`ASAuthorizationController`) integrates seamlessly with the system. Google Sign-In benefits from the native SDK approach because it provides a smoother, more Google-like experience without browser redirects.
+This project uses **native SDKs + backend token exchange** because:
+1. **Better UX**: Native system sheets (Apple) and SDK UI (Google) feel more integrated
+2. **Production standard**: Most scaled apps use this approach
+3. **Full control**: Backend can add custom validation, rate limiting, logging
+4. **No browser redirects**: Sign-in stays within the app
 
 ### Key Gotchas (iOS)
 
+- **Apple email/name only on first sign-in**: Apple only sends `email` and `fullName` on the FIRST authorization. Store these immediately in your database. To re-trigger, user must: Settings → Apple ID → Password & Security → Apps Using Apple ID → Stop Using.
+- **Apple requires Sign In with Apple capability**: Add in Xcode → Signing & Capabilities → + Capability → Sign In with Apple
 - **Google Client ID type**: For native iOS Google Sign-In, create an **iOS** OAuth client ID in Google Cloud Console (different from the Web client ID used for Cognito hosted UI)
-- **Token storage**: Native Google users' tokens are stored in memory (`AuthManager.nativeIdToken`), not in Amplify's secure storage. Consider using Keychain for production.
-- **Sign-out**: Must handle both `GIDSignIn.sharedInstance.signOut()` (Google) and `Amplify.Auth.signOut()` (Cognito/Apple) depending on auth provider
+- **Token storage**: Native social users' tokens are stored in memory (`AuthManager.nativeIdToken`), not in Amplify's secure storage. Consider using Keychain for production.
+- **Sign-out**: Must clear native tokens (`nativeIdToken = nil`) and optionally call `Amplify.Auth.signOut()` for email/password users
 - **IAM permissions**: Backend needs `cognito-idp:AdminCreateUser`, `AdminGetUser`, `AdminSetUserPassword`, `AdminInitiateAuth` permissions
 
 ---
@@ -513,50 +623,154 @@ data class AuthTokenResponse(
 
 ### Apple Sign-In Setup (Android)
 
-Apple Sign-In on Android uses Cognito's Hosted UI (web-based flow).
+Android Apple Sign-In uses **Custom Chrome Tabs** with a **backend redirect** — the production-standard approach. Apple blocks embedded WebViews for security, so Custom Tabs provide a secure browser environment.
 
-#### 1. Amplify Configuration
+#### Architecture Overview
 
-**res/raw/amplifyconfiguration.json**:
-```json
-{
-  "auth": {
-    "plugins": {
-      "awsCognitoAuthPlugin": {
-        "CognitoUserPool": {
-          "Default": {
-            "PoolId": "us-east-1_XXXXXX",
-            "AppClientId": "your-app-client-id",
-            "Region": "us-east-1"
-          }
-        },
-        "Auth": {
-          "Default": {
-            "authenticationFlowType": "USER_SRP_AUTH",
-            "socialProviders": ["APPLE", "GOOGLE"],
-            "OAuth": {
-              "WebDomain": "your-domain.auth.us-east-1.amazoncognito.com",
-              "AppClientId": "your-app-client-id",
-              "SignInRedirectURI": "awscognito://callback",
-              "SignOutRedirectURI": "awscognito://signout",
-              "Scopes": ["openid", "email", "profile"]
-            }
-          }
-        }
-      }
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ANDROID APPLE SIGN-IN FLOW (Production)                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────┐  1. Launch Custom Tab    ┌────────────────┐                    │
+│  │ Android │ ───────────────────────> │  Apple Auth    │                    │
+│  │   App   │                          │ (appleid.apple │                    │
+│  │         │                          │   .com/auth)   │                    │
+│  │         │                          └────────┬───────┘                    │
+│  │         │                                   │                            │
+│  │         │                     2. User signs in, Apple POSTs form_post    │
+│  │         │                                   │                            │
+│  │         │                                   ▼                            │
+│  │         │                          ┌────────────────┐                    │
+│  │         │                          │    Backend     │                    │
+│  │         │                          │  /auth/apple/  │                    │
+│  │         │                          │   callback     │                    │
+│  │         │                          └────────┬───────┘                    │
+│  │         │                                   │                            │
+│  │         │  3. Redirect to awscognito://     │                            │
+│  │         │     apple-callback?id_token=...   │                            │
+│  │         │ <─────────────────────────────────┘                            │
+│  │         │                                                                │
+│  │         │  4. MainActivity handles deep link                             │
+│  │         │     ├── Extracts id_token, code, email, name                   │
+│  │         │     └── Calls AuthViewModel.handleAppleSignInCallback()        │
+│  │         │                                                                │
+│  │         │  5. POST /auth/apple           ┌─────────────┐                 │
+│  │         │     {id_token, code, email}    │   Backend   │                 │
+│  │         │ ──────────────────────────────>│             │                 │
+│  │         │                                │ Verify with │                 │
+│  │         │                                │ Apple JWKS  │                 │
+│  │         │                                │      ▼      │                 │
+│  │         │                                │  ┌───────┐  │                 │
+│  │         │                                │  │Cognito│  │                 │
+│  │         │                                │  │ User  │  │                 │
+│  │         │                                │  │ Pool  │  │                 │
+│  │         │                                │  └───────┘  │                 │
+│  │         │  6. Return Cognito tokens      │      │      │                 │
+│  │         │ <──────────────────────────────│──────┘      │                 │
+│  └─────────┘                                └─────────────┘                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 1. Apple Developer Console
+
+**Create a Services ID** for the backend callback:
+
+1. Go to **Certificates, Identifiers & Profiles → Identifiers**
+2. Click **+** → Select **Services IDs** → Continue
+3. Identifier: `com.yourcompany.services.yourapp`
+4. Enable **Sign In with Apple** → Configure
+5. **Domains**: `your-backend.ngrok.dev` (or production domain)
+6. **Return URLs**: `https://your-backend.ngrok.dev/auth/apple/callback`
+
+> **Important**: The redirect URI points to your **backend**, not the app. The backend then redirects to your app via custom URL scheme.
+
+#### 2. Dependencies (gradle/libs.versions.toml)
+
+```toml
+[versions]
+browser = "1.8.0"
+
+[libraries]
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+```
+
+**app/build.gradle.kts**:
+```kotlin
+implementation(libs.androidx.browser)
+```
+
+#### 3. Configuration (res/values/strings.xml)
+
+```xml
+<!-- Apple Sign-In -->
+<string name="apple_client_id">com.yourcompany.services.yourapp</string>
+<string name="apple_redirect_uri">https://your-backend.ngrok.dev/auth/apple/callback</string>
+```
+
+#### 4. AppleSignInActivity — Launch Custom Tab
+
+```kotlin
+class AppleSignInActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_CLIENT_ID = "client_id"
+        const val EXTRA_REDIRECT_URI = "redirect_uri"
     }
-  }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val clientId = intent.getStringExtra(EXTRA_CLIENT_ID)
+        val redirectUri = intent.getStringExtra(EXTRA_REDIRECT_URI)
+
+        if (clientId == null || redirectUri == null) {
+            finish()
+            return
+        }
+
+        // Build Apple Sign In URL with form_post response mode
+        val authUrl = buildString {
+            append("https://appleid.apple.com/auth/authorize")
+            append("?client_id=").append(Uri.encode(clientId))
+            append("&redirect_uri=").append(Uri.encode(redirectUri))
+            append("&response_type=code%20id_token")
+            append("&scope=name%20email")
+            append("&response_mode=form_post")  // Apple POSTs to backend
+        }
+
+        // Open in Custom Chrome Tab (NOT WebView — Apple blocks WebViews)
+        val customTabsIntent = CustomTabsIntent.Builder()
+            .setShowTitle(true)
+            .build()
+
+        customTabsIntent.launchUrl(this, Uri.parse(authUrl))
+
+        // Finish immediately - callback goes to MainActivity via deep link
+        finish()
+    }
 }
 ```
 
-#### 2. AndroidManifest.xml
+#### 5. AndroidManifest.xml
 
-Register the deep link scheme for OAuth callbacks:
 ```xml
+<!-- AppleSignInActivity - no intent-filter, just launches Custom Tab -->
+<activity
+    android:name=".features.login.AppleSignInActivity"
+    android:exported="false"
+    android:theme="@style/Theme.AWSCognito" />
+
+<!-- MainActivity - handles ALL deep links -->
 <activity
     android:name=".MainActivity"
     android:exported="true"
     android:launchMode="singleTask">
+    <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+    </intent-filter>
     <intent-filter>
         <action android:name="android.intent.action.VIEW" />
         <category android:name="android.intent.category.DEFAULT" />
@@ -566,54 +780,394 @@ Register the deep link scheme for OAuth callbacks:
 </activity>
 ```
 
-#### 3. MainActivity — Handle OAuth Callback
+> **Critical**: Only MainActivity should have the `awscognito://` intent-filter. Having multiple activities with the same scheme causes an app chooser loop.
+
+#### 6. MainActivity — Handle Apple Callback Deep Link
 
 ```kotlin
 class MainActivity : ComponentActivity() {
 
+    private var authViewModelRef: AuthViewModel? = null
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // Handle OAuth redirect callback from Cognito Hosted UI
-        if (intent.data?.scheme == "awscognito") {
-            Amplify.Auth.handleWebUISignInResponse(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent) {
+        val uri = intent.data ?: return
+
+        if (uri.scheme == "awscognito") {
+            when (uri.host) {
+                "apple-callback" -> {
+                    // Handle Apple Sign-In callback from backend redirect
+                    val error = uri.getQueryParameter("error")
+                    val idToken = uri.getQueryParameter("id_token")
+                    val code = uri.getQueryParameter("code")
+                    val email = uri.getQueryParameter("email")
+                    val name = uri.getQueryParameter("name")
+
+                    authViewModelRef?.handleAppleSignInCallback(
+                        idToken = idToken,
+                        code = code,
+                        email = email,
+                        name = name,
+                        error = error
+                    )
+                }
+                else -> {
+                    // Handle other OAuth redirects (Cognito hosted UI)
+                    Amplify.Auth.handleWebUISignInResponse(intent)
+                }
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Handle OAuth redirect if app was launched fresh from callback
+        // Handle deep link if app was launched fresh from callback
         intent?.let {
             if (it.data?.scheme == "awscognito") {
-                Amplify.Auth.handleWebUISignInResponse(it)
+                // Delay handling until authViewModelRef is set
+                window.decorView.post { handleDeepLink(it) }
             }
         }
-        // ... rest of onCreate
+        // ... setContent with authViewModel initialization
     }
 }
 ```
 
-#### 4. AuthViewModel — Apple Sign-In
+#### 7. AuthViewModel — Token Exchange
 
 ```kotlin
-fun signInWithApple(activity: Activity) {
+fun signInWithApple(activity: Activity, clientId: String, redirectUri: String) {
+    _authState.value = _authState.value.copy(isLoading = true, error = null)
+
+    // Launch AppleSignInActivity (opens Custom Tab)
+    val intent = Intent(activity, AppleSignInActivity::class.java).apply {
+        putExtra(AppleSignInActivity.EXTRA_CLIENT_ID, clientId)
+        putExtra(AppleSignInActivity.EXTRA_REDIRECT_URI, redirectUri)
+    }
+    activity.startActivity(intent)
+}
+
+fun handleAppleSignInCallback(
+    idToken: String?,
+    code: String?,
+    email: String?,
+    name: String?,
+    error: String?
+) {
     viewModelScope.launch {
-        val result = suspendCoroutine { continuation ->
-            Amplify.Auth.signInWithSocialWebUI(
-                AuthProvider.apple(),
-                activity,
-                { continuation.resume(it) },
-                { continuation.resumeWithException(it) }
-            )
+        if (error != null) {
+            _authState.value = AuthState(error = "Apple sign-in error: $error")
+            return@launch
         }
 
-        if (result.isSignedIn) {
+        if (idToken == null || code == null) {
+            _authState.value = AuthState(error = "Missing Apple credentials")
+            return@launch
+        }
+
+        try {
+            // Exchange Apple token for Cognito tokens via backend
+            val authResponse = ApiClient.apiService.exchangeAppleToken(
+                AppleAuthRequest(
+                    identityToken = idToken,
+                    authorizationCode = code,
+                    email = email,
+                    fullName = name
+                )
+            )
+
+            // Store Cognito tokens locally
+            nativeIdToken = authResponse.idToken
+            nativeAccessToken = authResponse.accessToken
             authProvider = AuthProviderType.APPLE
-            checkAuthStatus()  // Fetch user attributes from Amplify session
+
+            _authState.value = AuthState(
+                isAuthenticated = true,
+                username = email,
+                email = email
+            )
+        } catch (e: Exception) {
+            _authState.value = AuthState(error = "Apple sign-in failed: ${e.message}")
         }
     }
 }
 ```
+
+#### 8. API Service (Retrofit)
+
+```kotlin
+interface ApiService {
+    @POST("auth/apple")
+    suspend fun exchangeAppleToken(@Body request: AppleAuthRequest): AuthTokenResponse
+}
+
+data class AppleAuthRequest(
+    @SerializedName("identity_token") val identityToken: String,
+    @SerializedName("authorization_code") val authorizationCode: String,
+    val email: String?,
+    @SerializedName("full_name") val fullName: String?
+)
+```
+
+---
+
+## FastAPI Backend Auth Endpoints
+
+The backend handles token exchange for native social sign-in flows. All endpoints verify provider tokens using JWKS, create/get Cognito users, and return Cognito tokens.
+
+### POST /auth/google — Google Token Exchange
+
+Exchanges a Google ID token (from native SDK) for Cognito tokens.
+
+**Request:**
+```json
+{
+  "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "email": "user@example.com",
+  "full_name": "John Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expires_in": 3600
+}
+```
+
+### POST /auth/apple — Apple Token Exchange
+
+Exchanges an Apple identity token for Cognito tokens.
+
+**Request:**
+```json
+{
+  "identity_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "authorization_code": "c1234567890abcdef...",
+  "email": "user@example.com",
+  "full_name": "John Doe"
+}
+```
+
+**Response:** Same as Google.
+
+### POST /auth/apple/callback — Apple OAuth Callback (Android)
+
+This endpoint receives Apple's `form_post` OAuth response and redirects to the mobile app via custom URL scheme. This is the **production-standard pattern** for Android OAuth with providers that require POST callbacks.
+
+**Why this endpoint exists:**
+- Apple uses `response_mode=form_post` for security (token in POST body, not URL fragment)
+- Mobile apps can't directly receive POST requests
+- Solution: Backend receives POST, then redirects to app via `awscognito://apple-callback?id_token=...`
+
+**Request (form data from Apple):**
+```
+code=authorization_code_here
+id_token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+user={"name":{"firstName":"John","lastName":"Doe"},"email":"user@example.com"}
+```
+
+**Response:** HTML page with meta refresh + JavaScript redirect to:
+```
+awscognito://apple-callback?id_token=...&code=...&email=...&name=...
+```
+
+**Implementation (server/app/routers/auth.py):**
+
+```python
+@router.post("/apple/callback", response_class=HTMLResponse)
+async def apple_callback(
+    code: str = Form(None),
+    id_token: str = Form(None),
+    state: str = Form(None),
+    user: str = Form(None),      # JSON string with email/name (first sign-in only)
+    error: str = Form(None),
+):
+    """
+    OAuth callback for Apple Sign-In (form_post response mode).
+
+    Flow:
+    1. Mobile app opens Apple auth in browser/Custom Tab
+    2. Apple POSTs authorization response to this endpoint
+    3. This endpoint redirects to app's custom URL scheme with tokens
+    4. App receives tokens and completes sign-in
+    """
+    # Build redirect URL to mobile app
+    app_scheme = "awscognito"
+    app_path = "apple-callback"
+
+    params = {}
+    if error:
+        params["error"] = error
+    else:
+        if id_token:
+            params["id_token"] = id_token
+        if code:
+            params["code"] = code
+        if user:
+            # Parse user JSON to extract email and name
+            try:
+                user_data = json.loads(user)
+                if "email" in user_data:
+                    params["email"] = user_data["email"]
+                if "name" in user_data:
+                    name_parts = []
+                    if user_data["name"].get("firstName"):
+                        name_parts.append(user_data["name"]["firstName"])
+                    if user_data["name"].get("lastName"):
+                        name_parts.append(user_data["name"]["lastName"])
+                    if name_parts:
+                        params["name"] = " ".join(name_parts)
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+
+    redirect_url = f"{app_scheme}://{app_path}?{urlencode(params)}"
+
+    # Return HTML that redirects to the app
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="refresh" content="0;url={redirect_url}">
+        <title>Redirecting...</title>
+        <script>window.location.href = "{redirect_url}";</script>
+    </head>
+    <body>
+        <p>Redirecting to app...</p>
+        <p>If not redirected, <a href="{redirect_url}">click here</a>.</p>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(content=html_content)
+```
+
+### Token Verification (JWKS)
+
+Both `/auth/google` and `/auth/apple` verify tokens using the provider's public keys:
+
+```python
+@lru_cache(maxsize=1)
+def get_google_jwks() -> dict:
+    """Fetch and cache Google's JWKS."""
+    response = httpx.get("https://www.googleapis.com/oauth2/v3/certs")
+    return response.json()
+
+@lru_cache(maxsize=1)
+def get_apple_jwks() -> dict:
+    """Fetch and cache Apple's JWKS."""
+    response = httpx.get("https://appleid.apple.com/auth/keys")
+    return response.json()
+
+def verify_google_token(id_token_str: str) -> dict:
+    """Verify Google ID token signature and claims."""
+    unverified_header = jwt.get_unverified_header(id_token_str)
+    kid = unverified_header.get("kid")
+
+    # Find matching key in JWKS
+    jwks = get_google_jwks()
+    key = next((k for k in jwks["keys"] if k["kid"] == kid), None)
+
+    if not key:
+        # Clear cache and retry (key rotation)
+        get_google_jwks.cache_clear()
+        # ... retry logic
+
+    # Verify and decode
+    claims = jwt.decode(
+        id_token_str,
+        jwk.construct(key).to_pem().decode("utf-8"),
+        algorithms=["RS256"],
+        audience=google_client_id,  # Verify audience matches your client ID
+    )
+
+    return claims
+```
+
+### Cognito User Management
+
+```python
+def admin_get_or_create_user(cognito_client, user_pool_id, provider_sub, email, full_name):
+    """Get existing user or create new one linked to social provider."""
+
+    # Use email as username (Cognito User Pool configured with email as username)
+    username = email  # NOT apple_sub or google_sub — Cognito requires email
+
+    try:
+        cognito_client.admin_get_user(UserPoolId=user_pool_id, Username=username)
+        return username
+    except cognito_client.exceptions.UserNotFoundException:
+        pass
+
+    # Create new user with verified email
+    cognito_client.admin_create_user(
+        UserPoolId=user_pool_id,
+        Username=username,
+        UserAttributes=[
+            {"Name": "email", "Value": email},
+            {"Name": "email_verified", "Value": "true"},
+            {"Name": "name", "Value": full_name} if full_name else None,
+        ],
+        MessageAction="SUPPRESS",  # Don't send welcome email
+    )
+
+    # Set random password (social users don't use passwords)
+    temp_password = "Aa1!" + secrets.token_urlsafe(24)  # Meets Cognito policy
+    cognito_client.admin_set_user_password(
+        UserPoolId=user_pool_id,
+        Username=username,
+        Password=temp_password,
+        Permanent=True,
+    )
+
+    return username
+```
+
+### Cognito Token Generation
+
+```python
+def admin_initiate_auth(cognito_client, user_pool_id, client_id, username):
+    """Generate Cognito tokens using ADMIN_USER_PASSWORD_AUTH."""
+
+    # Set a temporary password for this auth
+    temp_password = "Aa1!" + secrets.token_urlsafe(24)
+    cognito_client.admin_set_user_password(
+        UserPoolId=user_pool_id,
+        Username=username,
+        Password=temp_password,
+        Permanent=True,
+    )
+
+    # Authenticate with the temporary password
+    response = cognito_client.admin_initiate_auth(
+        UserPoolId=user_pool_id,
+        ClientId=client_id,
+        AuthFlow="ADMIN_USER_PASSWORD_AUTH",  # Requires app client setting
+        AuthParameters={
+            "USERNAME": username,
+            "PASSWORD": temp_password,
+        },
+    )
+
+    auth_result = response.get("AuthenticationResult", {})
+    return {
+        "id_token": auth_result.get("IdToken"),
+        "access_token": auth_result.get("AccessToken"),
+        "refresh_token": auth_result.get("RefreshToken"),
+        "expires_in": auth_result.get("ExpiresIn", 3600),
+    }
+```
+
+---
 
 ### Backend Configuration for Android
 
@@ -664,7 +1218,10 @@ The AWS credentials need these Cognito permissions:
 |-------|-------|-----|
 | **"Invalid audience" error** | Backend `GOOGLE_CLIENT_ID` doesn't match Android app's Web Client ID | Use the same Web Client ID in both `strings.xml` and server `.env` |
 | **"audience must be a string"** | python-jose doesn't accept list | Backend iterates through client IDs (already fixed in this codebase) |
-| **Apple Sign-In stuck at loading** | OAuth callback not handled | Add `Amplify.Auth.handleWebUISignInResponse(intent)` in `onNewIntent` and `onCreate` |
+| **Apple blank WebView** | Apple blocks embedded WebViews for security | Use Custom Chrome Tabs, NOT WebView |
+| **App chooser loop after Apple sign-in** | Multiple activities with same URL scheme intent-filter | Only MainActivity should have `awscognito://` intent-filter |
+| **Apple callback not received** | Backend redirect URL wrong | Ensure backend redirects to `awscognito://apple-callback?...` |
+| **Apple email is null** | Apple only sends email on first sign-in | Store email in database on first sign-in; subsequent logins won't include it |
 | **"Access Token does not have required scopes"** | Missing scope for `fetchUserAttributes()` | Add `aws.cognito.signin.user.admin` to Cognito scopes, or handle the error gracefully |
 | **Password policy error** | Cognito requires special characters | Password generation includes `Aa1!` prefix to meet policy |
 
@@ -674,9 +1231,13 @@ The AWS credentials need these Cognito permissions:
 |--------|---------|-----|
 | **Google Sign-In** | Credential Manager API | GIDSignIn SDK |
 | **Google Client ID** | Web Client ID | iOS Client ID |
-| **Apple Sign-In** | Cognito Hosted UI | Cognito Hosted UI (or native) |
-| **OAuth Callback** | `Amplify.Auth.handleWebUISignInResponse()` | Automatic via URL scheme |
+| **Apple Sign-In** | Custom Chrome Tabs + Backend Redirect | ASAuthorizationController (native) |
+| **Apple Callback** | Deep link from backend (`awscognito://apple-callback`) | Direct SDK response |
 | **Token Storage** | In-memory (`nativeIdToken`) | In-memory (`nativeIdToken`) |
+
+> **Why different Apple implementations?**
+> - **iOS**: Apple's native `ASAuthorizationController` provides a system-level sign-in sheet — seamless and direct
+> - **Android**: No native Apple SDK. Uses Custom Chrome Tabs → backend callback → deep link redirect. This is the production-standard approach for Android Apple Sign-In.
 
 ---
 

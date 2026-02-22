@@ -20,11 +20,40 @@ import com.example.awscognito.shared.viewmodel.AuthViewModel
 
 class MainActivity : ComponentActivity() {
 
+    private var authViewModelRef: AuthViewModel? = null
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // Handle OAuth redirect callback
-        if (intent.data != null && intent.data?.scheme == "awscognito") {
-            Amplify.Auth.handleWebUISignInResponse(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent) {
+        val uri = intent.data ?: return
+
+        if (uri.scheme == "awscognito") {
+            when (uri.host) {
+                "apple-callback" -> {
+                    // Handle Apple Sign-In callback from backend redirect
+                    android.util.Log.d("MainActivity", "Apple callback received: $uri")
+                    val error = uri.getQueryParameter("error")
+                    val idToken = uri.getQueryParameter("id_token")
+                    val code = uri.getQueryParameter("code")
+                    val email = uri.getQueryParameter("email")
+                    val name = uri.getQueryParameter("name")
+
+                    authViewModelRef?.handleAppleSignInCallback(
+                        idToken = idToken,
+                        code = code,
+                        email = email,
+                        name = name,
+                        error = error
+                    )
+                }
+                else -> {
+                    // Handle other OAuth redirects (Cognito hosted UI)
+                    Amplify.Auth.handleWebUISignInResponse(intent)
+                }
+            }
         }
     }
 
@@ -35,17 +64,25 @@ class MainActivity : ComponentActivity() {
         // Handle OAuth redirect if app was launched fresh from callback
         intent?.let {
             if (it.data != null && it.data?.scheme == "awscognito") {
-                Amplify.Auth.handleWebUISignInResponse(it)
+                // Delay handling until authViewModelRef is set
+                val pendingIntent = it
+                window.decorView.post {
+                    handleDeepLink(pendingIntent)
+                }
             }
         }
         setContent {
             AWSCognitoTheme {
                 val authViewModel: AuthViewModel = viewModel()
+                authViewModelRef = authViewModel
+
                 val authState by authViewModel.authState.collectAsState()
                 val dashboardState by authViewModel.dashboardState.collectAsState()
 
-                // Get Google Web Client ID from resources
+                // Get configuration from resources
                 val googleWebClientId = getString(R.string.google_web_client_id)
+                val appleClientId = getString(R.string.apple_client_id)
+                val appleRedirectUri = getString(R.string.apple_redirect_uri)
 
                 if (authState.isLoading && !authState.isAuthenticated && authState.error == null) {
                     // Show loading while checking initial auth status
@@ -65,7 +102,13 @@ class MainActivity : ComponentActivity() {
                         onSignInWithGoogle = {
                             authViewModel.signInWithGoogle(this@MainActivity, googleWebClientId)
                         },
-                        onSignInWithApple = { authViewModel.signInWithApple(this@MainActivity) },
+                        onSignInWithApple = {
+                            authViewModel.signInWithApple(
+                                activity = this@MainActivity,
+                                clientId = appleClientId,
+                                redirectUri = appleRedirectUri
+                            )
+                        },
                         onSignOut = authViewModel::signOut,
                         onChangePassword = authViewModel::changePassword,
                         onLoadDashboardData = authViewModel::loadDashboardData,

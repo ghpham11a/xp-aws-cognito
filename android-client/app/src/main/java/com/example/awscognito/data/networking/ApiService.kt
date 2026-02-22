@@ -1,5 +1,6 @@
 package com.example.awscognito.data.networking
 
+import com.example.awscognito.data.model.AppleAuthRequest
 import com.example.awscognito.data.model.AuthTokenResponse
 import com.example.awscognito.data.model.FeedItem
 import com.example.awscognito.data.model.GoogleAuthRequest
@@ -33,5 +34,10 @@ interface ApiService {
     @POST("auth/google")
     suspend fun exchangeGoogleToken(
         @Body request: GoogleAuthRequest
+    ): AuthTokenResponse
+
+    @POST("auth/apple")
+    suspend fun exchangeAppleToken(
+        @Body request: AppleAuthRequest
     ): AuthTokenResponse
 }
