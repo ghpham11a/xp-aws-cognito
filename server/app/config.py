@@ -15,8 +15,16 @@ class Settings(BaseSettings):
     cognito_user_pool_id: str = ""
     cognito_client_id: str = ""
 
-    # Apple Sign In
-    apple_bundle_id: str = ""  # Your iOS app bundle ID (e.g., "com.example.AWSCognito")
+    # Apple Sign In (comma-separated: iOS bundle ID + Services ID for web/Android)
+    apple_bundle_id: str = ""  # e.g., "com.example.AWSCognito,com.example.services.AWSCognito"
+
+    @property
+    def apple_bundle_ids(self) -> list[str]:
+        """Parse comma-separated Apple bundle/service IDs into a list."""
+        if not self.apple_bundle_id:
+            return []
+        return [bid.strip() for bid in self.apple_bundle_id.split(",") if bid.strip()]
+
     # Google Sign-In (comma-separated list of client IDs for iOS, Android, Web)
     google_client_id: str = ""  # Can be comma-separated: "ios-client-id,android-client-id,web-client-id"
 

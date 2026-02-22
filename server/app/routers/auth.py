@@ -71,8 +71,17 @@ def verify_apple_token(identity_token: str) -> dict:
 
     Apple identity tokens are JWTs signed with Apple's private key.
     We verify using Apple's public JWKS.
+    Supports multiple audience values (iOS bundle ID + Services ID for web/Android).
     """
     settings = get_settings()
+
+    apple_bundle_ids = settings.apple_bundle_ids
+    if not apple_bundle_ids:
+        logger.error("Apple bundle ID not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Apple bundle ID not configured",
+        )
 
     try:
         # Get the key ID from token header
@@ -111,15 +120,28 @@ def verify_apple_token(identity_token: str) -> dict:
 
         # Verify and decode token
         # Apple tokens have issuer "https://appleid.apple.com"
-        # Audience should be your app's bundle ID
-        claims = jwt.decode(
-            identity_token,
-            key.to_pem().decode("utf-8"),
-            algorithms=["RS256"],
-            issuer="https://appleid.apple.com",
-            audience=settings.apple_bundle_id,
-            options={"verify_at_hash": False},
-        )
+        # Audience is the app's bundle ID (iOS) or Services ID (web/Android)
+        # python-jose doesn't support list of audiences, so we try each one
+        claims = None
+        last_error = None
+
+        for bundle_id in apple_bundle_ids:
+            try:
+                claims = jwt.decode(
+                    identity_token,
+                    key.to_pem().decode("utf-8"),
+                    algorithms=["RS256"],
+                    issuer="https://appleid.apple.com",
+                    audience=bundle_id,
+                    options={"verify_at_hash": False},
+                )
+                break  # Successfully decoded with this audience
+            except JWTError as e:
+                last_error = e
+                continue  # Try next bundle ID
+
+        if claims is None:
+            raise last_error or JWTError("No valid audience found")
 
         return claims
 
