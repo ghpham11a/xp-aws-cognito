@@ -45,7 +45,7 @@ All four clients share the same authentication flow and hit the same backend API
 
 ### Backend (server/app/)
 
-FastAPI with app factory pattern (`create_app()` in `main.py`). Routers: `users.py` (JWT validation, just-in-time user provisioning to `data/users.json`) and `messages.py` (public + private message endpoints). All protected endpoints use `Depends(verify_token)`. JWT validation uses `python-jose` with JWKS caching. Custom middleware stack: RequestID, Logging, SecurityHeaders. Config via `pydantic-settings` loaded from `.env`.
+FastAPI with app factory pattern (`create_app()` in `main.py`). Routers: `users.py` (JWT validation, just-in-time user provisioning to `data/users.json`), `messages.py` (public + private message endpoints), and `auth.py` (native social sign-in token exchange). All protected endpoints use `Depends(verify_token)`. JWT validation uses `python-jose` with JWKS caching. Custom middleware stack: RequestID, Logging, SecurityHeaders. Config via `pydantic-settings` loaded from `.env`.
 
 ### Next.js Frontend (nextjs-client/)
 
@@ -76,6 +76,8 @@ SwiftUI with `@Observable` macro (iOS 17+). Swinject DI container (`Core/DI/Depe
 
 **Public:** `GET /`, `GET /health`, `GET /messages/public`
 
+**Auth (token exchange):** `POST /auth/apple`, `POST /auth/google`, `POST /auth/apple/callback` (Android OAuth redirect)
+
 ## Environment Variables
 
 **Frontend (.env.local):**
@@ -91,6 +93,12 @@ NEXT_PUBLIC_API_URL=http://localhost:6969
 AWS_REGION=us-east-1
 COGNITO_USER_POOL_ID=<user-pool-id>
 COGNITO_CLIENT_ID=<client-id>
+AWS_ACCESS_KEY_ID=<access-key>
+AWS_SECRET_ACCESS_KEY=<secret-key>
+
+# Native social sign-in (comma-separated for multiple platforms)
+APPLE_BUNDLE_ID=com.example.AWSCognito,com.example.services.AWSCognito
+GOOGLE_CLIENT_ID=<ios-client-id>,<web-client-id>
 ```
 
 **Mobile clients:** Cognito settings are in `amplifyconfiguration.json` files, not environment variables. API base URL is hardcoded in `APIService.swift` (iOS) and `ApiClient.kt` (Android) — currently set to the ngrok tunnel URL.
@@ -100,5 +108,6 @@ COGNITO_CLIENT_ID=<client-id>
 ## Key Patterns
 
 - **Token retrieval:** Next.js uses `fetchAuthSession()`, Android casts to `AWSCognitoAuthSession`, iOS casts to `AuthCognitoTokensProvider`
-- **Social sign-in:** iOS supports Apple and Google via `signInWithWebUI(for:)`. Next.js uses `signInWithRedirect({ provider: 'Google' })`. Android has placeholders.
+- **Native social sign-in:** All platforms use native SDKs (Apple's ASAuthorizationController, Google's GIDSignIn/Credential Manager) + backend token exchange via `POST /auth/apple` and `POST /auth/google`. Backend verifies provider tokens against JWKS, creates/gets Cognito user, returns Cognito tokens.
 - **iOS DI:** All services/ViewModels created by Swinject. Views resolve ViewModels via `DependencyContainer.shared.resolve()`. Singletons (`.container` scope): APIService, AuthManager, RouteManager, MessagesRepository. Transient: ViewModels.
+- **Apple "Hide My Email":** Users can choose to hide their email, resulting in private relay addresses like `xyz@privaterelay.appleid.com`. Email/name only sent on first sign-in.
