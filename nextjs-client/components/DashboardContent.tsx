@@ -2,15 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { fetchAuthSession } from "aws-amplify/auth";
 import LoadingSpinner from "./LoadingSpinner";
-
-interface FeedItem {
-  id: string;
-  title: string;
-  content: string;
-  type: string;
-}
 
 interface MessageResponse {
   message: string;
@@ -20,7 +12,7 @@ interface MessageResponse {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:6969";
 
 export default function DashboardContent() {
-  const { user } = useAuth();
+  const { user, getIdToken } = useAuth();
   const [privateMessage, setPrivateMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +20,7 @@ export default function DashboardContent() {
   useEffect(() => {
     async function initDashboard() {
       try {
-        const session = await fetchAuthSession();
-        const token = session.tokens?.idToken?.toString();
+        const token = await getIdToken();
 
         if (!token) {
           setError("No auth token available. Please sign in again.");
@@ -61,7 +52,7 @@ export default function DashboardContent() {
     }
 
     initDashboard();
-  }, []);
+  }, [getIdToken]);
 
   if (loading) {
     return <LoadingSpinner message="Loading dashboard..." />;
@@ -69,31 +60,10 @@ export default function DashboardContent() {
 
   return (
     <div className="dashboard-content">
-      <h1>Dashboard</h1>
-      <div className="welcome-card">
-        <h2>Welcome, {user?.signInDetails?.loginId || "User"}!</h2>
-        <p>You have successfully authenticated with AWS Cognito.</p>
-      </div>
 
       <div className="server-message-card">
         <h3>Server Message</h3>
         {privateMessage && <p className="message">{privateMessage}</p>}
-      </div>
-
-      <div className="dashboard-stats">
-        <h3>Your Account Info</h3>
-        <div className="info-grid">
-          <div className="info-item">
-            <span className="label">User ID:</span>
-            <span className="value">{user?.userId || "N/A"}</span>
-          </div>
-          <div className="info-item">
-            <span className="label">Username:</span>
-            <span className="value">
-              {user?.signInDetails?.loginId || "N/A"}
-            </span>
-          </div>
-        </div>
       </div>
     </div>
   );

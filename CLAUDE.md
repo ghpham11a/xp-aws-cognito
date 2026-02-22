@@ -36,6 +36,7 @@ pip install -r requirements.txt          # Install dependencies (run from server
 **Tunneling for mobile testing:**
 ```bash
 ngrok http --hostname=feedback-test.ngrok.io 6969
+ngrok start --all --config ngrok.yml
 ```
 
 ## Architecture

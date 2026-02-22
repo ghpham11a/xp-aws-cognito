@@ -677,3 +677,316 @@ The AWS credentials need these Cognito permissions:
 | **Apple Sign-In** | Cognito Hosted UI | Cognito Hosted UI (or native) |
 | **OAuth Callback** | `Amplify.Auth.handleWebUISignInResponse()` | Automatic via URL scheme |
 | **Token Storage** | In-memory (`nativeIdToken`) | In-memory (`nativeIdToken`) |
+
+---
+
+## Next.js Native Social Sign-In (Google & Apple)
+
+The Next.js app uses native SDK popup flows for both Google and Apple sign-in, exchanging tokens with the backend for Cognito credentials.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         NEXT.JS SOCIAL SIGN-IN FLOW                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────┐   1. Click button    ┌────────────────────┐                   │
+│  │  Next.js │ ──────────────────>  │  Google/Apple SDK  │                   │
+│  │   App    │                      │  (Popup Window)    │                   │
+│  │          │   2. User signs in   │                    │                   │
+│  │          │ <──────────────────  │  Returns id_token  │                   │
+│  │          │                      └────────────────────┘                   │
+│  │          │                                                               │
+│  │          │   3. POST /auth/google or /auth/apple     ┌─────────────┐     │
+│  │          │   {id_token, email, name}                 │   Backend   │     │
+│  │          │ ─────────────────────────────────────────>│  (FastAPI)  │     │
+│  │          │                                           │             │     │
+│  │          │                            4. Verify      │      │      │     │
+│  │          │                               token       │      ▼      │     │
+│  │          │                                           │  ┌───────┐  │     │
+│  │          │                                           │  │ JWKS  │  │     │
+│  │          │                                           │  └───────┘  │     │
+│  │          │                                           │      │      │     │
+│  │          │                            5. Create/get  │      ▼      │     │
+│  │          │                               user        │  ┌───────┐  │     │
+│  │          │                                           │  │Cognito│  │     │
+│  │          │                                           │  └───────┘  │     │
+│  │          │                                           │      │      │     │
+│  │          │   6. Return Cognito tokens                │      │      │     │
+│  │          │ <─────────────────────────────────────────│──────┘      │     │
+│  │          │                                           └─────────────┘     │
+│  │          │   7. Store in localStorage                                    │
+│  └──────────┘                                                               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Google Sign-In Setup (Next.js)
+
+#### 1. Google Cloud Console
+
+1. Go to **Google Cloud Console → APIs & Credentials → Create Credentials → OAuth client ID**
+2. Type: **Web application**
+3. Add **Authorized JavaScript origins**:
+   - `http://localhost:3000` (development)
+   - `https://yourdomain.com` (production)
+4. Save the **Client ID**
+
+> **Note**: No redirect URI needed — Google Identity Services uses popup mode.
+
+#### 2. Environment Variables
+
+**.env.local**:
+```bash
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+NEXT_PUBLIC_API_URL=http://localhost:6969
+```
+
+#### 3. GoogleSignInButton Component
+
+**components/GoogleSignInButton.tsx** — Key implementation details:
+
+```typescript
+// 1. Load Google Identity Services script
+useEffect(() => {
+  const script = document.createElement("script");
+  script.src = "https://accounts.google.com/gsi/client";
+  script.async = true;
+  script.onload = () => setScriptLoaded(true);
+  document.body.appendChild(script);
+}, []);
+
+// 2. Initialize and render Google's branded button
+useEffect(() => {
+  window.google.accounts.id.initialize({
+    client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+    callback: (response) => {
+      // response.credential is the Google ID token (JWT)
+      const payload = JSON.parse(atob(response.credential.split(".")[1]));
+      onSuccess(response.credential, payload.email, payload.name);
+    },
+  });
+
+  window.google.accounts.id.renderButton(buttonRef.current, {
+    theme: "outline",
+    size: "large",
+    type: "standard",
+    text: "continue_with",
+  });
+}, [scriptLoaded]);
+```
+
+#### 4. Token Exchange (auth-context.tsx)
+
+```typescript
+const handleSignInWithGoogleNative = async (idToken: string, email?: string, name?: string) => {
+  // 1. Send Google token to backend
+  const response = await fetch(`${apiUrl}/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id_token: idToken, email, full_name: name }),
+  });
+
+  const tokens = await response.json();
+
+  // 2. Store Cognito tokens in localStorage
+  const nativeTokensData = {
+    idToken: tokens.id_token,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt: Date.now() + (tokens.expires_in * 1000),
+  };
+  localStorage.setItem("native_auth_tokens", JSON.stringify(nativeTokensData));
+
+  // 3. Decode token to get user info
+  const payload = JSON.parse(atob(tokens.id_token.split(".")[1]));
+  setUser({ userId: payload.sub, signInDetails: { loginId: payload.email } });
+  setAuthStatus("authenticated");
+};
+```
+
+---
+
+### Apple Sign-In Setup (Next.js)
+
+Apple Sign-In requires HTTPS on a registered domain (localhost won't work). Use ngrok for local testing.
+
+#### 1. Apple Developer Console
+
+**Create a Services ID** (different from your App ID):
+
+1. Go to **Certificates, Identifiers & Profiles → Identifiers**
+2. Click **+** → Select **Services IDs** → Continue
+3. Description: `My Web App`
+4. Identifier: `com.example.services.myapp` (this is your **Client ID**)
+5. Click **Continue** → **Register**
+
+**Configure Sign In with Apple**:
+
+1. Select the Services ID you just created
+2. Check **Sign In with Apple** → Click **Configure**
+3. **Primary App ID**: Select your main App ID
+4. **Domains and Subdomains**: `yourdomain.com` (or ngrok subdomain)
+5. **Return URLs**: `https://yourdomain.com` (just the origin, no path)
+6. Click **Save** → **Continue** → **Save**
+
+#### 2. Environment Variables
+
+**.env.local**:
+```bash
+NEXT_PUBLIC_APPLE_CLIENT_ID=com.example.services.myapp
+NEXT_PUBLIC_APPLE_REDIRECT_URI=https://yourdomain.com
+NEXT_PUBLIC_API_URL=http://localhost:6969
+```
+
+#### 3. Backend Configuration
+
+**server/.env**:
+```bash
+# The Services ID (same as NEXT_PUBLIC_APPLE_CLIENT_ID)
+APPLE_BUNDLE_ID=com.example.services.myapp
+```
+
+#### 4. AppleSignInButton Component
+
+**components/AppleSignInButton.tsx** — Key implementation details:
+
+```typescript
+// 1. Load Apple Sign In JS SDK
+useEffect(() => {
+  const script = document.createElement("script");
+  script.src = "https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js";
+  script.async = true;
+  script.onload = () => setScriptLoaded(true);
+  document.body.appendChild(script);
+}, []);
+
+// 2. Initialize Apple Sign In
+useEffect(() => {
+  window.AppleID.auth.init({
+    clientId: process.env.NEXT_PUBLIC_APPLE_CLIENT_ID,  // Services ID
+    scope: "name email",
+    redirectURI: process.env.NEXT_PUBLIC_APPLE_REDIRECT_URI,  // Just the origin
+    usePopup: true,  // Use popup instead of redirect
+  });
+}, [scriptLoaded]);
+
+// 3. Handle sign-in click
+const handleClick = async () => {
+  const response = await window.AppleID.auth.signIn();
+
+  const idToken = response.authorization.id_token;
+  const code = response.authorization.code;
+  const email = response.user?.email;  // Only on first sign-in!
+  const name = response.user?.name
+    ? `${response.user.name.firstName} ${response.user.name.lastName}`
+    : undefined;
+
+  onSuccess(idToken, code, email, name);
+};
+```
+
+#### 5. Token Exchange (auth-context.tsx)
+
+```typescript
+const handleSignInWithAppleNative = async (
+  idToken: string,
+  code: string,
+  email?: string,
+  name?: string
+) => {
+  // 1. Send Apple token to backend
+  const response = await fetch(`${apiUrl}/auth/apple`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identity_token: idToken,
+      authorization_code: code,
+      email,
+      full_name: name,
+    }),
+  });
+
+  const tokens = await response.json();
+
+  // 2. Store Cognito tokens in localStorage
+  localStorage.setItem("native_auth_tokens", JSON.stringify({
+    idToken: tokens.id_token,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt: Date.now() + (tokens.expires_in * 1000),
+  }));
+
+  // 3. Set authenticated state
+  const payload = JSON.parse(atob(tokens.id_token.split(".")[1]));
+  setUser({ userId: payload.sub, signInDetails: { loginId: payload.email } });
+  setAuthStatus("authenticated");
+};
+```
+
+---
+
+### Local Development with ngrok
+
+Since Apple requires HTTPS on a registered domain:
+
+```bash
+# Start ngrok tunnel with stable subdomain
+ngrok http --hostname=myapp.ngrok.dev 3000
+```
+
+Then register in Apple Developer Console:
+- **Domain**: `myapp.ngrok.dev`
+- **Return URL**: `https://myapp.ngrok.dev`
+
+Update **.env.local**:
+```bash
+NEXT_PUBLIC_APPLE_REDIRECT_URI=https://myapp.ngrok.dev
+```
+
+---
+
+### Token Storage & Retrieval
+
+Native social sign-in tokens are stored separately from Amplify:
+
+```typescript
+// Retrieve token for API calls
+const handleGetIdToken = async (): Promise<string | null> => {
+  // 1. Check native tokens first (Google/Apple via backend)
+  const stored = localStorage.getItem("native_auth_tokens");
+  if (stored) {
+    const tokens = JSON.parse(stored);
+    if (tokens.expiresAt > Date.now()) {
+      return tokens.idToken;
+    }
+  }
+
+  // 2. Fall back to Amplify (email/password, Cognito hosted UI)
+  const session = await fetchAuthSession();
+  return session.tokens?.idToken?.toString() || null;
+};
+```
+
+---
+
+### Key Gotchas (Next.js)
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| **Apple: `invalid_request`** | Redirect URI doesn't match Apple Developer Console | Ensure `NEXT_PUBLIC_APPLE_REDIRECT_URI` exactly matches the Return URL (just origin, no path) |
+| **Apple: Email is undefined** | Apple only sends email on first sign-in | Store email in your database on first sign-in; subsequent logins won't include it. To re-trigger: Settings → Apple ID → Password & Security → Apps Using Apple ID → Stop Using |
+| **Apple: Doesn't work on localhost** | Apple requires HTTPS on registered domain | Use ngrok with a stable subdomain |
+| **Google: Popup blocked** | Browser popup blocker | Ensure sign-in is triggered by user click, not programmatically |
+| **Backend: `InvalidParameterException`** | Cognito expects email as username | Backend must use email (not provider sub) as Cognito username |
+| **Tokens not persisting** | localStorage cleared | Check browser settings; consider using cookies for SSR |
+
+### Environment Variables Summary
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Web Client ID | `123456.apps.googleusercontent.com` |
+| `NEXT_PUBLIC_APPLE_CLIENT_ID` | Apple Services ID | `com.example.services.myapp` |
+| `NEXT_PUBLIC_APPLE_REDIRECT_URI` | Apple return URL (origin only) | `https://myapp.ngrok.dev` |
+| `NEXT_PUBLIC_API_URL` | Backend URL for token exchange | `http://localhost:6969` |

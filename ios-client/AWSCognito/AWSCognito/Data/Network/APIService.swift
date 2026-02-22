@@ -31,7 +31,7 @@ enum APIError: Error, LocalizedError {
 class APIService {
 
     // Use ngrok URL for device testing, localhost for simulator
-    private let baseURL = "https://feedback-test.ngrok.io"
+    private let baseURL = "https://xp-server.ngrok.dev"
 
     init() {}
 

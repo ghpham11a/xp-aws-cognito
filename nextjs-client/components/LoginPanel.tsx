@@ -2,17 +2,11 @@
 
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import GoogleSignInButton from "./GoogleSignInButton";
+import AppleSignInButton from "./AppleSignInButton";
 
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
-      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-    </svg>
-  );
-}
+// Set to true to use native Apple Sign-In (requires real domain, not localhost)
+const USE_NATIVE_APPLE = process.env.NEXT_PUBLIC_APPLE_CLIENT_ID ? true : false;
 
 function AppleIcon() {
   return (
@@ -25,7 +19,7 @@ function AppleIcon() {
 type AuthView = "signIn" | "signUp" | "confirmSignUp" | "forgotPassword" | "confirmReset";
 
 export default function LoginPanel() {
-  const { signIn, signUp, confirmSignUp, resendSignUpCode, resetPassword, confirmResetPassword, signInWithGoogle, signInWithApple } = useAuth();
+  const { signIn, signUp, confirmSignUp, resendSignUpCode, resetPassword, confirmResetPassword, signInWithApple, signInWithGoogleNative, signInWithAppleNative } = useAuth();
 
   const [view, setView] = useState<AuthView>("signIn");
   const [email, setEmail] = useState("");
@@ -47,17 +41,38 @@ export default function LoginPanel() {
     setMessage("");
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSuccess = async (idToken: string, email?: string, name?: string) => {
     setSocialLoading("google");
     setError("");
     try {
-      await signInWithGoogle();
+      await signInWithGoogleNative(idToken, email, name);
     } catch (err: unknown) {
       const error = err as Error;
       setError(error.message || "Failed to sign in with Google");
     } finally {
       setSocialLoading(null);
     }
+  };
+
+  const handleGoogleError = (errorMsg: string) => {
+    setError(errorMsg);
+  };
+
+  const handleAppleSuccess = async (idToken: string, code: string, email?: string, name?: string) => {
+    setSocialLoading("apple");
+    setError("");
+    try {
+      await signInWithAppleNative(idToken, code, email, name);
+    } catch (err: unknown) {
+      const error = err as Error;
+      setError(error.message || "Failed to sign in with Apple");
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  const handleAppleError = (errorMsg: string) => {
+    setError(errorMsg);
   };
 
   const handleAppleSignIn = async () => {
@@ -228,24 +243,28 @@ export default function LoginPanel() {
             </div>
 
             <div className="social-buttons">
-              <button
-                type="button"
-                className="social-button social-button-google"
-                onClick={handleGoogleSignIn}
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
                 disabled={loading || socialLoading !== null}
-              >
-                <GoogleIcon />
-                <span>{socialLoading === "google" ? "Signing in..." : "Google"}</span>
-              </button>
-              <button
-                type="button"
-                className="social-button social-button-apple"
-                onClick={handleAppleSignIn}
-                disabled={loading || socialLoading !== null}
-              >
-                <AppleIcon />
-                <span>{socialLoading === "apple" ? "Signing in..." : "Apple"}</span>
-              </button>
+              />
+              {USE_NATIVE_APPLE ? (
+                <AppleSignInButton
+                  onSuccess={handleAppleSuccess}
+                  onError={handleAppleError}
+                  disabled={loading || socialLoading !== null}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="social-button social-button-apple"
+                  onClick={handleAppleSignIn}
+                  disabled={loading || socialLoading !== null}
+                >
+                  <AppleIcon />
+                  <span>{socialLoading === "apple" ? "Signing in..." : "Apple"}</span>
+                </button>
+              )}
             </div>
 
             <div className="auth-links">
@@ -322,24 +341,28 @@ export default function LoginPanel() {
             </div>
 
             <div className="social-buttons">
-              <button
-                type="button"
-                className="social-button social-button-google"
-                onClick={handleGoogleSignIn}
+              <GoogleSignInButton
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
                 disabled={loading || socialLoading !== null}
-              >
-                <GoogleIcon />
-                <span>{socialLoading === "google" ? "Signing up..." : "Google"}</span>
-              </button>
-              <button
-                type="button"
-                className="social-button social-button-apple"
-                onClick={handleAppleSignIn}
-                disabled={loading || socialLoading !== null}
-              >
-                <AppleIcon />
-                <span>{socialLoading === "apple" ? "Signing up..." : "Apple"}</span>
-              </button>
+              />
+              {USE_NATIVE_APPLE ? (
+                <AppleSignInButton
+                  onSuccess={handleAppleSuccess}
+                  onError={handleAppleError}
+                  disabled={loading || socialLoading !== null}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="social-button social-button-apple"
+                  onClick={handleAppleSignIn}
+                  disabled={loading || socialLoading !== null}
+                >
+                  <AppleIcon />
+                  <span>{socialLoading === "apple" ? "Signing up..." : "Apple"}</span>
+                </button>
+              )}
             </div>
 
             <div className="auth-links">

@@ -28,6 +28,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Allow ngrok dev origins
+  allowedDevOrigins: ["xp-client.ngrok.dev"],
+
   // Security headers
   async headers() {
     return [

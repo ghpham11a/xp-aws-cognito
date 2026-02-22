@@ -47,6 +47,9 @@ interface AuthContextType {
   refreshSession: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  signInWithGoogleNative: (idToken: string, email?: string, name?: string) => Promise<void>;
+  signInWithAppleNative: (idToken: string, code: string, email?: string, name?: string) => Promise<void>;
+  getIdToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -54,10 +57,38 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Refresh session 5 minutes before expiration
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
+// Native auth tokens (for Google native sign-in)
+interface NativeTokens {
+  idToken: string;
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+}
+
+const NATIVE_TOKENS_KEY = "native_auth_tokens";
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("configuring");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [nativeTokens, setNativeTokens] = useState<NativeTokens | null>(null);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load native tokens from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(NATIVE_TOKENS_KEY);
+    if (stored) {
+      try {
+        const tokens = JSON.parse(stored) as NativeTokens;
+        if (tokens.expiresAt > Date.now()) {
+          setNativeTokens(tokens);
+        } else {
+          localStorage.removeItem(NATIVE_TOKENS_KEY);
+        }
+      } catch {
+        localStorage.removeItem(NATIVE_TOKENS_KEY);
+      }
+    }
+  }, []);
 
   const clearRefreshTimeout = useCallback(() => {
     if (refreshTimeoutRef.current) {
@@ -93,6 +124,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearRefreshTimeout]);
 
   const checkAuth = useCallback(async () => {
+    // First check for native tokens
+    const stored = localStorage.getItem(NATIVE_TOKENS_KEY);
+    if (stored) {
+      try {
+        const tokens = JSON.parse(stored) as NativeTokens;
+        if (tokens.expiresAt > Date.now()) {
+          // Decode token to get user info
+          const payload = JSON.parse(atob(tokens.idToken.split(".")[1]));
+          setUser({
+            userId: payload.sub,
+            signInDetails: {
+              loginId: payload.email,
+            },
+          });
+          setNativeTokens(tokens);
+          setAuthStatus("authenticated");
+          return;
+        } else {
+          localStorage.removeItem(NATIVE_TOKENS_KEY);
+        }
+      } catch {
+        localStorage.removeItem(NATIVE_TOKENS_KEY);
+      }
+    }
+
+    // Fall back to Amplify auth
     try {
       const currentUser = await getCurrentUser();
       const session = await fetchAuthSession();
@@ -196,13 +253,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await resendSignUpCode({ username: email });
   };
 
-  const handleSignOut = async () => {
-    clearRefreshTimeout();
-    await amplifySignOut();
-    setUser(null);
-    setAuthStatus("unauthenticated");
-  };
-
   const handleResetPassword = async (email: string) => {
     await resetPassword({ username: email });
   };
@@ -239,6 +289,128 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signInWithRedirect({ provider: "Apple" });
   };
 
+  const handleSignInWithGoogleNative = async (idToken: string, email?: string, name?: string) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:6969";
+
+    const response = await fetch(`${apiUrl}/auth/google`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id_token: idToken,
+        email,
+        full_name: name,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(error || "Failed to sign in with Google");
+    }
+
+    const tokens = await response.json();
+
+    // Store tokens
+    const nativeTokensData: NativeTokens = {
+      idToken: tokens.id_token,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + (tokens.expires_in * 1000),
+    };
+
+    localStorage.setItem(NATIVE_TOKENS_KEY, JSON.stringify(nativeTokensData));
+    setNativeTokens(nativeTokensData);
+
+    // Decode token to get user info
+    const payload = JSON.parse(atob(tokens.id_token.split(".")[1]));
+    setUser({
+      userId: payload.sub,
+      signInDetails: {
+        loginId: payload.email || email,
+      },
+    });
+    setAuthStatus("authenticated");
+  };
+
+  const handleSignInWithAppleNative = async (idToken: string, code: string, email?: string, name?: string) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:6969";
+
+    const response = await fetch(`${apiUrl}/auth/apple`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        identity_token: idToken,
+        authorization_code: code,
+        email,
+        full_name: name,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(error || "Failed to sign in with Apple");
+    }
+
+    const tokens = await response.json();
+
+    // Store tokens
+    const nativeTokensData: NativeTokens = {
+      idToken: tokens.id_token,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + (tokens.expires_in * 1000),
+    };
+
+    localStorage.setItem(NATIVE_TOKENS_KEY, JSON.stringify(nativeTokensData));
+    setNativeTokens(nativeTokensData);
+
+    // Decode token to get user info
+    const payload = JSON.parse(atob(tokens.id_token.split(".")[1]));
+    setUser({
+      userId: payload.sub,
+      signInDetails: {
+        loginId: payload.email || email,
+      },
+    });
+    setAuthStatus("authenticated");
+  };
+
+  const handleGetIdToken = async (): Promise<string | null> => {
+    // Check native tokens first
+    if (nativeTokens && nativeTokens.expiresAt > Date.now()) {
+      return nativeTokens.idToken;
+    }
+
+    // Fall back to Amplify
+    try {
+      const session = await fetchAuthSession();
+      return session.tokens?.idToken?.toString() || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleSignOut = async () => {
+    clearRefreshTimeout();
+
+    // Clear native tokens
+    localStorage.removeItem(NATIVE_TOKENS_KEY);
+    setNativeTokens(null);
+
+    // Sign out from Amplify
+    try {
+      await amplifySignOut();
+    } catch {
+      // Ignore Amplify sign out errors if using native auth
+    }
+
+    setUser(null);
+    setAuthStatus("unauthenticated");
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -255,6 +427,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshSession: handleRefreshSession,
         signInWithGoogle: handleSignInWithGoogle,
         signInWithApple: handleSignInWithApple,
+        signInWithGoogleNative: handleSignInWithGoogleNative,
+        signInWithAppleNative: handleSignInWithAppleNative,
+        getIdToken: handleGetIdToken,
       }}
     >
       {children}

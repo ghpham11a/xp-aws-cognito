@@ -264,10 +264,16 @@ def admin_get_or_create_user(
     """
     Get existing user or create new one linked to Apple identity.
 
-    Returns the Cognito username.
+    Returns the Cognito username (email).
     """
-    # Username format for Apple users
-    username = f"apple_{apple_sub}"
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required for Apple sign-in",
+        )
+
+    # Use email as username (Cognito User Pool configured with email as username)
+    username = email
 
     try:
         # Try to get existing user
@@ -290,14 +296,9 @@ def admin_get_or_create_user(
     logger.info(f"Creating new Apple user: {username}")
 
     user_attributes = [
-        {"Name": "custom:apple_sub", "Value": apple_sub},
+        {"Name": "email", "Value": email},
+        {"Name": "email_verified", "Value": "true"},
     ]
-
-    if email:
-        user_attributes.extend([
-            {"Name": "email", "Value": email},
-            {"Name": "email_verified", "Value": "true"},
-        ])
 
     if full_name:
         user_attributes.append({"Name": "name", "Value": full_name})

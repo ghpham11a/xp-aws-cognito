@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
     // Use 10.0.2.2 for Android emulator to reach localhost on host machine
     // Change to your actual server IP for physical device testing
-    private const val BASE_URL = "https://feedback-test.ngrok.io/"
+    private const val BASE_URL = "https://xp-server.ngrok.dev/"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
