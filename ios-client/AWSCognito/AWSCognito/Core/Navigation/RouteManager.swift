@@ -12,18 +12,6 @@ enum Tab {
     case account
 }
 
-enum HomeDestination: Hashable {
-    
-}
-
-enum DashboardDestination: Hashable {
-    
-}
-
-enum AccountDestination: Hashable {
-    
-}
-
 @Observable
 class RouteManager {
     

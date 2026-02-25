@@ -10,6 +10,7 @@
 		CE17FF4F2F342290002C455D /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0B2F2C100000D29722 /* Amplify */; };
 		CE17FF502F342290002C455D /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = CECD9F0C2F2C100000D29722 /* AWSCognitoAuthPlugin */; };
 		CE3A91012F3E0001006169CA /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = CE3A91002F3E0001006169CA /* GoogleSignIn */; };
+		CE53473E2F4EA47600A95A8F /* Debug.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = CE53473D2F4EA47600A95A8F /* Debug.xcconfig */; };
 		CEC577252F38D23E006169CA /* Swinject in Frameworks */ = {isa = PBXBuildFile; productRef = CEC577242F38D23E006169CA /* Swinject */; };
 /* End PBXBuildFile section */
 
@@ -31,6 +32,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		CE53473D2F4EA47600A95A8F /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		CECD9FDF2F2C0DFC00D29722 /* AWSCognito.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AWSCognito.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CECD9FEC2F2C0DFD00D29722 /* AWSCognitoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AWSCognitoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CECD9FF62F2C0DFD00D29722 /* AWSCognitoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AWSCognitoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +88,7 @@
 		CECD9FD62F2C0DFC00D29722 = {
 			isa = PBXGroup;
 			children = (
+				CE53473D2F4EA47600A95A8F /* Debug.xcconfig */,
 				CECD9FE12F2C0DFC00D29722 /* AWSCognito */,
 				CECD9FEF2F2C0DFD00D29722 /* AWSCognitoTests */,
 				CECD9FF92F2C0DFD00D29722 /* AWSCognitoUITests */,
@@ -232,6 +235,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CE53473E2F4EA47600A95A8F /* Debug.xcconfig in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -407,6 +411,7 @@
 		};
 		CECDA0012F2C0DFD00D29722 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = CE53473D2F4EA47600A95A8F /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

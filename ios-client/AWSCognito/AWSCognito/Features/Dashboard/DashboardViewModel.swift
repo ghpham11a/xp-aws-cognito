@@ -8,13 +8,13 @@ import Foundation
 @Observable
 class DashboardViewModel {
 
-    private let messagesRepository: MessagesRepository
+    private let messagesRepository: MessagesRepo
 
     var privateMessage: String?
     var isLoading = false
     var error: String?
 
-    init(messagesRepository: MessagesRepository) {
+    init(messagesRepository: MessagesRepo) {
         self.messagesRepository = messagesRepository
     }
 

@@ -10,7 +10,11 @@ struct LoginView: View {
     @Environment(AuthManager.self) private var authManager
     @Environment(\.dismiss) private var dismiss
     
-    @State private var viewModel = LoginViewModel()
+    @State private var viewModel: LoginViewModel
+    
+    init(viewModel: LoginViewModel) {
+        _viewModel = State(initialValue: viewModel)
+    }
 
     var body: some View {
         ScrollView {
@@ -68,6 +72,12 @@ struct LoginView: View {
                 .autocapitalization(.none)
                 .keyboardType(.emailAddress)
 
+            if let message = viewModel.emailValidationMessage {
+                Text(message)
+                    .foregroundColor(.orange)
+                    .font(.caption)
+            }
+
             SecureField("Password", text: $viewModel.password)
                 .textFieldStyle(.roundedBorder)
                 .textContentType(.password)
@@ -89,7 +99,7 @@ struct LoginView: View {
             .background(Color.blue)
             .foregroundColor(.white)
             .cornerRadius(10)
-            .disabled(authManager.isLoading || viewModel.email.isEmpty || viewModel.password.isEmpty)
+            .disabled(authManager.isLoading || !viewModel.isSignInValid)
 
             Button("Don't have an account? Sign Up") {
                 viewModel.isSignUpMode = true
@@ -109,6 +119,12 @@ struct LoginView: View {
                 .textContentType(.emailAddress)
                 .autocapitalization(.none)
                 .keyboardType(.emailAddress)
+
+            if let message = viewModel.emailValidationMessage {
+                Text(message)
+                    .foregroundColor(.orange)
+                    .font(.caption)
+            }
 
             SecureField("Password", text: $viewModel.password)
                 .textFieldStyle(.roundedBorder)
@@ -258,5 +274,5 @@ struct LoginView: View {
 }
 
 #Preview {
-    LoginView()
+    LoginView(viewModel: LoginViewModel())
 }
