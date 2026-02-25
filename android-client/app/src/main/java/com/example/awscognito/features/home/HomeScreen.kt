@@ -1,35 +1,32 @@
 package com.example.awscognito.features.home
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.awscognito.data.networking.ApiClient
-import kotlinx.coroutines.launch
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
-fun HomeScreen() {
-    var publicMessage by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(Unit) {
-        scope.launch {
-            try {
-                val response = ApiClient.apiService.getPublicMessage()
-                publicMessage = response.message
-            } catch (e: Exception) {
-                error = e.message ?: "Failed to load message"
-            } finally {
-                isLoading = false
-            }
-        }
-    }
+fun HomeScreen(
+    viewModel: HomeViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -52,14 +49,14 @@ fun HomeScreen() {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 when {
-                    isLoading -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    error != null -> Text(
-                        text = error!!,
+                    uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    uiState.error != null -> Text(
+                        text = uiState.error!!,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
                     else -> Text(
-                        text = publicMessage ?: "",
+                        text = uiState.publicMessage ?: "",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

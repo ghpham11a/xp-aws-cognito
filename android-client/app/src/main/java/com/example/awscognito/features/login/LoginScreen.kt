@@ -1,5 +1,6 @@
 package com.example.awscognito.features.login
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,30 +32,33 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.example.awscognito.shared.viewmodel.AuthState
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
 fun LoginScreen(
-    authState: AuthState,
-    onSignIn: (String, String) -> Unit,
-    onSignUp: (String, String) -> Unit,
-    onConfirmSignUp: (String, String, String) -> Unit,
-    onSignInWithGoogle: () -> Unit,
-    onSignInWithApple: () -> Unit,
-    onClearError: () -> Unit,
-    onDismiss: (() -> Unit)? = null
+    googleWebClientId: String,
+    appleClientId: String,
+    appleRedirectUri: String,
+    onAuthenticated: () -> Unit,
+    onDismiss: (() -> Unit)? = null,
+    viewModel: LoginViewModel = hiltViewModel()
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
     var isSignUp by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -62,10 +66,17 @@ fun LoginScreen(
     var confirmationCode by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf<String?>(null) }
 
+    // Handle successful authentication
+    LaunchedEffect(uiState.isAuthenticated) {
+        if (uiState.isAuthenticated) {
+            onAuthenticated()
+        }
+    }
+
     // Clear local error when switching modes
     LaunchedEffect(isSignUp) {
         localError = null
-        onClearError()
+        viewModel.clearError()
     }
 
     Box(
@@ -83,7 +94,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = if (authState.needsConfirmation) "Confirm Email"
+                text = if (uiState.needsConfirmation) "Confirm Email"
                 else if (isSignUp) "Create Account"
                 else "Sign In",
                 style = MaterialTheme.typography.headlineMedium,
@@ -93,7 +104,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = if (authState.needsConfirmation) "Enter the code sent to your email"
+                text = if (uiState.needsConfirmation) "Enter the code sent to your email"
                 else if (isSignUp) "Sign up to get started"
                 else "Welcome back",
                 style = MaterialTheme.typography.bodyLarge,
@@ -103,7 +114,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             // Show error if any
-            val errorMessage = authState.error ?: localError
+            val errorMessage = uiState.error ?: localError
             if (errorMessage != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -120,7 +131,7 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            if (authState.needsConfirmation) {
+            if (uiState.needsConfirmation) {
                 // Confirmation code form
                 OutlinedTextField(
                     value = confirmationCode,
@@ -138,14 +149,18 @@ fun LoginScreen(
 
                 Button(
                     onClick = {
-                        onConfirmSignUp(authState.confirmationEmail ?: email, confirmationCode, password)
+                        viewModel.confirmSignUp(
+                            uiState.confirmationEmail ?: email,
+                            confirmationCode,
+                            password
+                        )
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),
-                    enabled = !authState.isLoading && confirmationCode.isNotBlank()
+                    enabled = !uiState.isLoading && confirmationCode.isNotBlank()
                 ) {
-                    if (authState.isLoading) {
+                    if (uiState.isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onPrimary
@@ -214,17 +229,17 @@ fun LoginScreen(
                                 localError = "Password must be at least 8 characters"
                                 return@Button
                             }
-                            onSignUp(email, password)
+                            viewModel.signUp(email, password)
                         } else {
-                            onSignIn(email, password)
+                            viewModel.signIn(email, password)
                         }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp),
-                    enabled = !authState.isLoading && email.isNotBlank() && password.isNotBlank()
+                    enabled = !uiState.isLoading && email.isNotBlank() && password.isNotBlank()
                 ) {
-                    if (authState.isLoading) {
+                    if (uiState.isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onPrimary
@@ -240,7 +255,7 @@ fun LoginScreen(
                     onClick = {
                         isSignUp = !isSignUp
                         localError = null
-                        onClearError()
+                        viewModel.clearError()
                     }
                 ) {
                     Text(
@@ -274,21 +289,27 @@ fun LoginScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = onSignInWithGoogle,
+                        onClick = {
+                            viewModel.signInWithGoogle(context, googleWebClientId)
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .height(50.dp),
-                        enabled = !authState.isLoading
+                        enabled = !uiState.isLoading
                     ) {
                         Text("Google")
                     }
 
                     Button(
-                        onClick = onSignInWithApple,
+                        onClick = {
+                            (context as? Activity)?.let { activity ->
+                                viewModel.signInWithApple(activity, appleClientId, appleRedirectUri)
+                            }
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .height(50.dp),
-                        enabled = !authState.isLoading,
+                        enabled = !uiState.isLoading,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.onSurface,
                             contentColor = MaterialTheme.colorScheme.surface

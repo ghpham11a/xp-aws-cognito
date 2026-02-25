@@ -1,12 +1,14 @@
 package com.example.awscognito.data.model
 
-import com.google.gson.annotations.SerializedName
+import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
 
+@JsonClass(generateAdapter = true)
 data class User(
-    @SerializedName("user_id")
+    @Json(name = "user_id")
     val userId: String,
     val email: String,
     val name: String?,
-    @SerializedName("created_at")
+    @Json(name = "created_at")
     val createdAt: String
 )

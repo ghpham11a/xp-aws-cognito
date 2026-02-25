@@ -1,11 +1,33 @@
 package com.example.awscognito.features.account
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -13,15 +35,25 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.example.awscognito.shared.viewmodel.AuthState
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.awscognito.core.auth.AuthState
 
 @Composable
 fun AccountScreen(
     authState: AuthState,
-    onChangePassword: (String, String, () -> Unit) -> Unit,
-    onSignOut: () -> Unit,
-    onShowLogin: () -> Unit
+    onShowLogin: () -> Unit,
+    onSignedOut: () -> Unit,
+    viewModel: AccountViewModel = hiltViewModel()
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+
+    // Handle sign out success
+    LaunchedEffect(uiState.signOutSuccess) {
+        if (uiState.signOutSuccess) {
+            onSignedOut()
+        }
+    }
+
     if (!authState.isAuthenticated) {
         // Show login prompt when not authenticated
         Box(
@@ -65,8 +97,16 @@ fun AccountScreen(
     var newPassword by remember { mutableStateOf("") }
     var confirmNewPassword by remember { mutableStateOf("") }
     var passwordError by remember { mutableStateOf<String?>(null) }
-    var showPasswordSuccess by remember { mutableStateOf(false) }
     var showSignOutDialog by remember { mutableStateOf(false) }
+
+    // Clear form on password change success
+    LaunchedEffect(uiState.passwordChangeSuccess) {
+        if (uiState.passwordChangeSuccess) {
+            currentPassword = ""
+            newPassword = ""
+            confirmNewPassword = ""
+        }
+    }
 
     if (showSignOutDialog) {
         AlertDialog(
@@ -77,7 +117,7 @@ fun AccountScreen(
                 Button(
                     onClick = {
                         showSignOutDialog = false
-                        onSignOut()
+                        viewModel.signOut()
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
@@ -127,7 +167,7 @@ fun AccountScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                if (showPasswordSuccess) {
+                if (uiState.passwordChangeSuccess) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -143,7 +183,8 @@ fun AccountScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                 }
 
-                if (passwordError != null || authState.error != null) {
+                val errorMessage = passwordError ?: uiState.error
+                if (errorMessage != null) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -151,7 +192,7 @@ fun AccountScreen(
                         )
                     ) {
                         Text(
-                            text = passwordError ?: authState.error ?: "",
+                            text = errorMessage,
                             modifier = Modifier.padding(12.dp),
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
@@ -207,7 +248,7 @@ fun AccountScreen(
                 Button(
                     onClick = {
                         passwordError = null
-                        showPasswordSuccess = false
+                        viewModel.clearPasswordSuccess()
 
                         if (newPassword != confirmNewPassword) {
                             passwordError = "New passwords do not match"
@@ -218,20 +259,15 @@ fun AccountScreen(
                             return@Button
                         }
 
-                        onChangePassword(currentPassword, newPassword) {
-                            showPasswordSuccess = true
-                            currentPassword = ""
-                            newPassword = ""
-                            confirmNewPassword = ""
-                        }
+                        viewModel.changePassword(currentPassword, newPassword)
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !authState.isLoading &&
+                    enabled = !uiState.isLoading &&
                             currentPassword.isNotBlank() &&
                             newPassword.isNotBlank() &&
                             confirmNewPassword.isNotBlank()
                 ) {
-                    if (authState.isLoading) {
+                    if (uiState.isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onPrimary

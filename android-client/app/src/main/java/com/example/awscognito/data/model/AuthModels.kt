@@ -1,32 +1,36 @@
 package com.example.awscognito.data.model
 
-import com.google.gson.annotations.SerializedName
+import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
 
+@JsonClass(generateAdapter = true)
 data class GoogleAuthRequest(
-    @SerializedName("id_token")
+    @Json(name = "id_token")
     val idToken: String,
     val email: String?,
-    @SerializedName("full_name")
+    @Json(name = "full_name")
     val fullName: String?
 )
 
+@JsonClass(generateAdapter = true)
 data class AppleAuthRequest(
-    @SerializedName("identity_token")
+    @Json(name = "identity_token")
     val identityToken: String,
-    @SerializedName("authorization_code")
+    @Json(name = "authorization_code")
     val authorizationCode: String,
     val email: String?,
-    @SerializedName("full_name")
+    @Json(name = "full_name")
     val fullName: String?
 )
 
+@JsonClass(generateAdapter = true)
 data class AuthTokenResponse(
-    @SerializedName("id_token")
+    @Json(name = "id_token")
     val idToken: String,
-    @SerializedName("access_token")
+    @Json(name = "access_token")
     val accessToken: String,
-    @SerializedName("refresh_token")
+    @Json(name = "refresh_token")
     val refreshToken: String?,
-    @SerializedName("expires_in")
+    @Json(name = "expires_in")
     val expiresIn: Int
 )
