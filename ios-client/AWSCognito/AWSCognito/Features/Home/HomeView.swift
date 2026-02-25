@@ -10,8 +10,12 @@ struct HomeView: View {
     @Environment(RouteManager.self) private var routeManager
     @Environment(AuthManager.self) private var authManager
 
-    @State private var viewModel = DependencyContainer.shared.resolve(HomeViewModel.self)
-
+    @State private var viewModel: HomeViewModel
+    
+    init(viewModel: HomeViewModel) {
+        _viewModel = State(initialValue: viewModel)
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -25,6 +29,12 @@ struct HomeView: View {
                     } else if let error = viewModel.error {
                         Text(error)
                             .foregroundColor(.red)
+                        Button("Retry") {
+                            Task {
+                                await viewModel.fetchPublicMessage()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
                     } else if let message = viewModel.publicMessage {
                         Text(message)
                             .foregroundColor(.secondary)
@@ -44,5 +54,5 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView()
+    HomeView(viewModel: DependencyContainer.shared.resolve(HomeViewModel.self))
 }

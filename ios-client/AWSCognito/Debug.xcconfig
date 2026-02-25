@@ -1,0 +1,11 @@
+//
+//  Debug.xcconfig
+//  AWSCognito
+//
+//  Created by Anthony Pham on 2/24/26.
+//
+
+// Configuration settings file format documentation can be found at:
+// https://developer.apple.com/documentation/xcode/adding-a-build-configuration-file-to-your-project
+
+API="https://xp-server.ngrok.dev"

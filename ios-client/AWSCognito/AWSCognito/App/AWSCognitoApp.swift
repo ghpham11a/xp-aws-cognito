@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import OSLog
 import Amplify
 import AWSCognitoAuthPlugin
 import GoogleSignIn
@@ -13,6 +14,7 @@ struct AWSCognitoApp: App {
     
     @State private var routeManager = DependencyContainer.shared.resolve(RouteManager.self)
     @State private var authManager = DependencyContainer.shared.resolve(AuthManager.self)
+    @State private var connectivityMonitor = DependencyContainer.shared.resolve(ConnectivityMonitor.self)
     
     init() {
         configureAmplify()
@@ -23,6 +25,7 @@ struct AWSCognitoApp: App {
             ContentView()
                 .environment(routeManager)
                 .environment(authManager)
+                .environment(connectivityMonitor)
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }
@@ -33,9 +36,9 @@ struct AWSCognitoApp: App {
         do {
             try Amplify.add(plugin: AWSCognitoAuthPlugin())
             try Amplify.configure()
-            print("Amplify configured successfully")
+            Log.general.info("Amplify configured successfully")
         } catch {
-            print("Failed to configure Amplify: \(error)")
+            Log.general.error("Failed to configure Amplify: \(error)")
         }
     }
 }

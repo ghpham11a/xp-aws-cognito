@@ -10,7 +10,11 @@ struct AccountView: View {
     @Environment(RouteManager.self) private var routeManager
     @Environment(AuthManager.self) private var authManager
     
-    @State private var viewModel = AccountViewModel()
+    @State private var viewModel: AccountViewModel
+    
+    init(viewModel: AccountViewModel) {
+        _viewModel = State(initialValue: viewModel)
+    }
     
     var body: some View {
         ScrollView {
@@ -165,5 +169,5 @@ struct AccountView: View {
 }
 
 #Preview {
-    AccountView()
+    AccountView(viewModel: AccountViewModel())
 }

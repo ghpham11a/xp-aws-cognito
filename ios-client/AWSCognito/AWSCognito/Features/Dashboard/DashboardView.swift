@@ -10,7 +10,11 @@ struct DashboardView: View {
     @Environment(RouteManager.self) private var routeManager
     @Environment(AuthManager.self) private var authManager
 
-    @State private var viewModel = DependencyContainer.shared.resolve(DashboardViewModel.self)
+    @State private var viewModel: DashboardViewModel
+    
+    init(viewModel: DashboardViewModel) {
+        _viewModel = State(initialValue: viewModel)
+    }
 
     var body: some View {
         ScrollView {
@@ -49,6 +53,12 @@ struct DashboardView: View {
                         } else if let error = viewModel.error {
                             Text(error)
                                 .foregroundColor(.red)
+                            Button("Retry") {
+                                Task {
+                                    await viewModel.fetchPrivateMessage()
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
                         } else if let message = viewModel.privateMessage {
                             Text(message)
                                 .foregroundColor(.secondary)
@@ -78,5 +88,5 @@ struct DashboardView: View {
 }
 
 #Preview {
-    DashboardView()
+    DashboardView(viewModel: DependencyContainer.shared.resolve(DashboardViewModel.self))
 }

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import OSLog
 import Amplify
 import AWSPluginsCore
 import AWSCognitoAuthPlugin
@@ -49,12 +50,16 @@ final class AuthManager {
     private var nativeAccessToken: String?
     private var authProvider: AuthProvider = .cognito
 
-    private let apiService = APIService()
+    private var authRepository: AuthRepo?
 
     init() {
         Task {
             await checkAuthStatus()
         }
+    }
+
+    func configure(authRepository: AuthRepo) {
+        self.authRepository = authRepository
     }
 
     func checkAuthStatus() async {
@@ -72,7 +77,7 @@ final class AuthManager {
                 authProvider = .cognito
             }
         } catch {
-            print("err: \(error)")
+            Log.auth.error("Failed to check auth status: \(error)")
         }
     }
 
@@ -90,7 +95,7 @@ final class AuthManager {
                 }
             }
         } catch {
-            print("err: \(error)")
+            Log.auth.error("Failed to fetch user attributes: \(error)")
         }
     }
 
@@ -99,7 +104,7 @@ final class AuthManager {
         do {
             // let currentUser = try await NetworkService.shared.request(url: "", authToken: token)
         } catch {
-            print("err: \(error)")
+            Log.auth.error("Failed to provision user: \(error)")
         }
     }
 
@@ -220,7 +225,7 @@ final class AuthManager {
             authError = error.localizedDescription
         }
 
-        print("authError \(authError ?? "")")
+        Log.auth.debug("Sign in completed, error: \(self.authError ?? "none")")
 
         isLoading = false
     }
@@ -270,6 +275,29 @@ final class AuthManager {
         }
 
         isLoading = false
+    }
+
+    func refreshTokenOrSignOut() async -> Bool {
+        switch authProvider {
+        case .cognito:
+            // Amplify handles token refresh internally when fetching a session
+            do {
+                let session = try await Amplify.Auth.fetchAuthSession()
+                if session.isSignedIn {
+                    Log.auth.info("Token refreshed via Amplify")
+                    return true
+                }
+            } catch {
+                Log.auth.error("Token refresh failed: \(error)")
+            }
+            await signOut()
+            return false
+        case .apple, .google:
+            // No refresh mechanism for native social tokens — sign out
+            Log.auth.info("No refresh available for \(String(describing: self.authProvider)), signing out")
+            await signOut()
+            return false
+        }
     }
 
     func presentLoginView() {
@@ -322,7 +350,12 @@ final class AuthManager {
             }
 
             // Step 2: Exchange Apple token for Cognito tokens via backend
-            let authResponse = try await apiService.exchangeAppleToken(
+            guard let authRepository else {
+                authError = "Auth repository not configured"
+                isLoading = false
+                return
+            }
+            let authResponse = try await authRepository.exchangeAppleToken(
                 identityToken: identityToken,
                 authorizationCode: authorizationCode,
                 email: appleEmail,
@@ -340,8 +373,6 @@ final class AuthManager {
 
         } catch let error as ASAuthorizationError where error.code == .canceled {
             // User cancelled - don't show error
-        } catch let error as APIError {
-            authError = error.errorDescription
         } catch {
             authError = error.localizedDescription
         }
@@ -390,7 +421,12 @@ final class AuthManager {
             let googleName = result.user.profile?.name
 
             // Step 2: Exchange Google token for Cognito tokens via backend
-            let authResponse = try await apiService.exchangeGoogleToken(
+            guard let authRepository else {
+                authError = "Auth repository not configured"
+                isLoading = false
+                return
+            }
+            let authResponse = try await authRepository.exchangeGoogleToken(
                 idToken: googleIdToken,
                 email: googleEmail,
                 fullName: googleName
@@ -405,8 +441,6 @@ final class AuthManager {
             email = googleEmail
             userId = result.user.userID
 
-        } catch let error as APIError {
-            authError = error.errorDescription
         } catch {
             authError = error.localizedDescription
         }
