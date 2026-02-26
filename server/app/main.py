@@ -121,4 +121,5 @@ def create_app() -> FastAPI:
 
 # Create application instance
 # Run with: uvicorn app.main:app --host 0.0.0.0 --port 6969 --reload
+# Run with: uv run uvicorn app.main:app --port 6969 --reload
 app = create_app()
