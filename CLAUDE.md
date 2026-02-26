@@ -49,7 +49,33 @@ FastAPI with app factory pattern (`create_app()` in `main.py`). Routers: `users.
 
 ### Next.js Frontend (nextjs-client/)
 
-Next.js 16 + React 19 + TypeScript + Tailwind 4. Auth state managed via `AuthProvider` context (`lib/auth-context.tsx`). `AmplifyProvider` component initializes Amplify and wraps the app. Route-based pages under `app/` (home, dashboard, account). Amplify config in `lib/amplify-config.ts`.
+Next.js 16 + React 19 + TypeScript + Tailwind 4. Feature-based architecture with modular organization.
+
+**Route Groups:**
+- `app/(public)/` — Public pages (home) with shared layout
+- `app/(protected)/` — Auth-guarded pages (dashboard, account) with `AuthGuard` wrapper in layout
+
+**Core Libraries (`lib/`):**
+- `lib/auth/` — Auth context split into focused modules: `context.tsx` (provider), `amplify-auth.ts` (Amplify operations), `native-auth.ts` (native token management), `token-refresh.ts` (refresh scheduling)
+- `lib/api/` — API client layer: `client.ts` (base client with auth header injection), `messages.ts`, `users.ts`, `auth.ts` (token exchange)
+- `lib/amplify/` — Amplify config and provider
+- `lib/utils/` — JWT decoding, storage helpers
+
+**Features (`features/`):**
+- `features/auth/` — Login flows: `LoginPanel` orchestrates form components (`SignInForm`, `SignUpForm`, `ConfirmSignUpForm`, `ForgotPasswordForm`, `ResetPasswordForm`), social auth buttons (`GoogleSignInButton`, `AppleSignInButton`), `AuthGuard`
+- `features/dashboard/` — `DashboardContent` + `useDashboardData` hook
+- `features/account/` — `AccountContent`, `ChangePasswordForm`
+- `features/home/` — `HomeContent`
+
+**Shared Components (`components/`):**
+- `components/ui/` — Reusable primitives: Button, Input, FormField, Card, LoadingSpinner
+- `components/layout/` — AppHeader, Navigation
+- `components/icons/` — AppleIcon, GoogleIcon
+
+**Configuration:**
+- `config/env.ts` — Centralized `NEXT_PUBLIC_*` environment variables
+- `config/constants.ts` — Application constants (token refresh buffer, storage keys, nav items)
+- `types/` — Shared TypeScript types (`auth.ts`, `api.ts`, `global.d.ts` for SDK declarations)
 
 ### Android (android-client/)
 
@@ -107,7 +133,8 @@ GOOGLE_CLIENT_ID=<ios-client-id>,<web-client-id>
 
 ## Key Patterns
 
-- **Token retrieval:** Next.js uses `fetchAuthSession()`, Android casts to `AWSCognitoAuthSession`, iOS casts to `AuthCognitoTokensProvider`
+- **Token retrieval:** Next.js uses `useAuth().getIdToken()` (checks native tokens first, falls back to Amplify's `fetchAuthSession()`), Android casts to `AWSCognitoAuthSession`, iOS casts to `AuthCognitoTokensProvider`
+- **Next.js API calls:** Use `lib/api/` functions which automatically inject auth headers via `apiClient.setTokenProvider()`
 - **Native social sign-in:** All platforms use native SDKs (Apple's ASAuthorizationController, Google's GIDSignIn/Credential Manager) + backend token exchange via `POST /auth/apple` and `POST /auth/google`. Backend verifies provider tokens against JWKS, creates/gets Cognito user, returns Cognito tokens.
 - **iOS DI:** All services/ViewModels created by Swinject. Views resolve ViewModels via `DependencyContainer.shared.resolve()`. Singletons (`.container` scope): APIService, AuthManager, RouteManager, MessagesRepository. Transient: ViewModels.
 - **Apple "Hide My Email":** Users can choose to hide their email, resulting in private relay addresses like `xyz@privaterelay.appleid.com`. Email/name only sent on first sign-in.
