@@ -1,19 +1,26 @@
+"""
+HTTP middleware for request processing.
+
+Provides request ID tracking, logging, and security headers.
+"""
+
+import logging
 import time
 import uuid
-import logging
 from contextvars import ContextVar
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-# Context variable for request ID
+# Context variable for request ID - accessible across async contexts
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 
 logger = logging.getLogger(__name__)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
-    """Add unique request ID to each request for tracing."""
+    """Add unique request ID to each request for distributed tracing."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))

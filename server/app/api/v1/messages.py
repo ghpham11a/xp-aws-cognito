@@ -1,26 +1,19 @@
-import logging
-from typing import Annotated
+"""
+Message endpoints.
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+Demo endpoints showing public vs. protected access patterns.
+"""
 
-from routers.users import verify_token
+from fastapi import APIRouter
+
+from app.api.deps import TokenClaims
+from app.schemas.messages import MessageResponse
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
-
-
-class MessageResponse(BaseModel):
-    message: str
-    authenticated: bool
-
-
-# Type alias for dependency injection
-TokenClaims = Annotated[dict, Depends(verify_token)]
 
 
 @router.get("/public", response_model=MessageResponse)
-async def get_public_message():
+async def get_public_message() -> MessageResponse:
     """Public message endpoint - no authentication required."""
     return MessageResponse(
         message="Hello! This is a public message.",
@@ -29,7 +22,7 @@ async def get_public_message():
 
 
 @router.get("/private", response_model=MessageResponse)
-async def get_private_message(claims: TokenClaims):
+async def get_private_message(claims: TokenClaims) -> MessageResponse:
     """Private message endpoint - requires authentication."""
     user_email = claims.get("email", "unknown")
     return MessageResponse(

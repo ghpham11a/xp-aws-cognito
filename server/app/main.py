@@ -1,21 +1,33 @@
+"""
+FastAPI application entry point.
+
+Uses app factory pattern for flexible configuration.
+"""
+
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from config import get_settings
-from logging_config import setup_logging
-from middleware import RequestIDMiddleware, LoggingMiddleware, SecurityHeadersMiddleware
-from exceptions import (
+from app.api.router import api_router
+from app.core.config import get_settings
+from app.core.exceptions import (
+    AppException,
+    app_exception_handler,
     http_exception_handler,
-    validation_exception_handler,
     unhandled_exception_handler,
+    validation_exception_handler,
 )
-from routers import users, messages, auth
+from app.core.logging import setup_logging
+from app.core.middleware import (
+    LoggingMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+)
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +61,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    """
+    Application factory.
+
+    Creates and configures the FastAPI application with all middleware,
+    exception handlers, and routers.
+    """
     settings = get_settings()
 
     app = FastAPI(
@@ -76,14 +94,14 @@ def create_app() -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
-    # Include routers
-    app.include_router(auth.router, prefix="/auth", tags=["auth"])
-    app.include_router(users.router, prefix="/users", tags=["users"])
-    app.include_router(messages.router, prefix="/messages", tags=["messages"])
+    # Include API router
+    app.include_router(api_router)
 
+    # Health check endpoints
     @app.get("/", tags=["health"])
     def root():
         """Root endpoint - basic status check."""
@@ -100,5 +118,7 @@ def create_app() -> FastAPI:
 
     return app
 
-# uvicorn main:app --host 0.0.0.0 --port 6969 --reload
+
+# Create application instance
+# Run with: uvicorn app.main:app --host 0.0.0.0 --port 6969 --reload
 app = create_app()

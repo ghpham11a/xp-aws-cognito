@@ -12,7 +12,11 @@
       "Bash(./gradlew assembleDebug:*)",
       "Bash(xcodebuild:*)",
       "Bash(aws cognito-idp describe-identity-provider:*)",
-      "Bash(ls -la \"C:\\\\Users\\\\antho\\\\Dev\\\\xp-aws-cognito\\\\ios-client\\\\AWSCognito\\\\AWSCognito\\\\Resources\"\" 2>/dev/null || echo \"Directory not found, trying alternative path \")"
+      "Bash(ls -la \"C:\\\\Users\\\\antho\\\\Dev\\\\xp-aws-cognito\\\\ios-client\\\\AWSCognito\\\\AWSCognito\\\\Resources\"\" 2>/dev/null || echo \"Directory not found, trying alternative path \")",
+      "Bash(tree:*)",
+      "Bash(python -c:*)",
+      "Bash(./env/Scripts/python:*)",
+      "Bash(uv run python:*)"
     ]
   }
 }

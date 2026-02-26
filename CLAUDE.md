@@ -27,10 +27,14 @@ xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 1
 xcodebuild -scheme AWSCognito -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-**Backend (server/app/):**
+**Backend (server/):**
 ```bash
-uvicorn main:app --port 6969 --reload   # Start dev server (run from server/app/)
-pip install -r requirements.txt          # Install dependencies (run from server/)
+uv sync                                       # Install dependencies (run from server/)
+uv sync --dev                                 # Install with dev dependencies
+uv run uvicorn app.main:app --port 6969 --reload  # Start dev server
+uv run pytest                                 # Run tests
+uv run ruff check .                           # Lint code
+uv run mypy app                               # Type check
 ```
 
 **Tunneling for mobile testing:**
@@ -43,9 +47,54 @@ ngrok start --all --config ngrok.yml
 
 All four clients share the same authentication flow and hit the same backend API. The iOS and Android Cognito configs include OAuth sections for Google/Apple sign-in; the Next.js config is minimal.
 
-### Backend (server/app/)
+### Backend (server/)
 
-FastAPI with app factory pattern (`create_app()` in `main.py`). Routers: `users.py` (JWT validation, just-in-time user provisioning to `data/users.json`), `messages.py` (public + private message endpoints), and `auth.py` (native social sign-in token exchange). All protected endpoints use `Depends(verify_token)`. JWT validation uses `python-jose` with JWKS caching. Custom middleware stack: RequestID, Logging, SecurityHeaders. Config via `pydantic-settings` loaded from `.env`.
+FastAPI with clean architecture: app factory pattern, layered structure, and dependency injection.
+
+**Directory Structure:**
+```
+server/
+├── app/
+│   ├── main.py              # App factory, lifespan, middleware setup
+│   ├── core/                # Cross-cutting concerns
+│   │   ├── config.py        # Pydantic settings from .env
+│   │   ├── security.py      # JWT verification (TokenClaims dependency)
+│   │   ├── exceptions.py    # Custom exceptions + global handlers
+│   │   ├── middleware.py    # RequestID, Logging, SecurityHeaders
+│   │   └── logging.py       # JSON (prod) / human-readable (dev) formatters
+│   ├── api/                 # Thin route controllers
+│   │   ├── deps.py          # Shared dependencies re-exports
+│   │   ├── router.py        # Main router aggregating v1 routes
+│   │   └── v1/              # API version 1
+│   │       ├── users.py     # User endpoints
+│   │       ├── messages.py  # Message endpoints
+│   │       └── auth.py      # Social sign-in token exchange
+│   ├── schemas/             # Pydantic request/response models
+│   │   ├── auth.py          # AppleAuthRequest, GoogleAuthRequest, AuthTokenResponse
+│   │   ├── users.py         # UserResponse, UserCreate
+│   │   ├── messages.py      # MessageResponse
+│   │   └── common.py        # ErrorResponse, HealthResponse
+│   ├── services/            # Business logic layer
+│   │   ├── auth_service.py  # Token exchange orchestration
+│   │   ├── user_service.py  # User operations
+│   │   └── jwks_service.py  # JWKS fetching + caching
+│   ├── repositories/        # Data access layer
+│   │   └── user_repository.py  # JSON file storage (swappable for DB)
+│   └── providers/           # External service integrations
+│       ├── cognito.py       # AWS Cognito admin operations
+│       ├── apple.py         # Apple token verification
+│       └── google.py        # Google token verification
+├── data/                    # Persistent data (users.json)
+├── tests/                   # Test suite mirroring app/ structure
+└── pyproject.toml           # uv project config (deps, scripts, tools)
+```
+
+**Key Patterns:**
+- **Dependency Injection:** FastAPI `Depends()` for services, repositories, providers
+- **Service Layer:** Business logic in services, routes are thin controllers
+- **Repository Pattern:** Data access abstracted (JSON now, DB later)
+- **Provider Pattern:** External services (Cognito, Apple, Google) wrapped
+- **TokenClaims:** Type alias `Annotated[dict, Depends(verify_token)]` for protected endpoints
 
 ### Next.js Frontend (nextjs-client/)
 
@@ -98,7 +147,7 @@ SwiftUI with `@Observable` macro (iOS 17+). Swinject DI container (`Core/DI/Depe
 
 ## API Endpoints
 
-**Protected (JWT required):** `GET /users/me`, `GET /users`, `GET /users/{user_id}`, `GET /feed`, `GET /messages/private`
+**Protected (JWT required):** `GET /users/me`, `GET /users`, `GET /users/{user_id}`, `GET /messages/private`
 
 **Public:** `GET /`, `GET /health`, `GET /messages/public`
 

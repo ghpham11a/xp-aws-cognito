@@ -1,6 +1,12 @@
-import sys
-import logging
+"""
+Logging configuration for the application.
+
+Provides JSON logging for production and human-readable logging for development.
+"""
+
 import json
+import logging
+import sys
 from datetime import datetime, timezone
 
 

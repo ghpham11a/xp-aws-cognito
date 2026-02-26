@@ -1,5 +1,12 @@
-import os
+"""
+Application configuration using Pydantic settings.
+
+Loads configuration from environment variables and .env file.
+"""
+
 from functools import lru_cache
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 
@@ -16,7 +23,7 @@ class Settings(BaseSettings):
     cognito_client_id: str = ""
 
     # Apple Sign In (comma-separated: iOS bundle ID + Services ID for web/Android)
-    apple_bundle_id: str = ""  # e.g., "com.example.AWSCognito,com.example.services.AWSCognito"
+    apple_bundle_id: str = ""
 
     @property
     def apple_bundle_ids(self) -> list[str]:
@@ -26,7 +33,7 @@ class Settings(BaseSettings):
         return [bid.strip() for bid in self.apple_bundle_id.split(",") if bid.strip()]
 
     # Google Sign-In (comma-separated list of client IDs for iOS, Android, Web)
-    google_client_id: str = ""  # Can be comma-separated: "ios-client-id,android-client-id,web-client-id"
+    google_client_id: str = ""
 
     @property
     def google_client_ids(self) -> list[str]:
@@ -45,13 +52,33 @@ class Settings(BaseSettings):
     api_title: str = "AWS Cognito Auth API"
     api_version: str = "1.0.0"
 
+    # Data storage
+    data_dir: Path = Path(__file__).parent.parent.parent / "data"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore extra env vars not in the model
 
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def cognito_jwks_url(self) -> str:
+        """Get the Cognito JWKS URL."""
+        return (
+            f"https://cognito-idp.{self.aws_region}.amazonaws.com/"
+            f"{self.cognito_user_pool_id}/.well-known/jwks.json"
+        )
+
+    @property
+    def cognito_issuer(self) -> str:
+        """Get the Cognito token issuer URL."""
+        return (
+            f"https://cognito-idp.{self.aws_region}.amazonaws.com/"
+            f"{self.cognito_user_pool_id}"
+        )
 
     def validate_required(self) -> None:
         """Validate required settings are present."""
